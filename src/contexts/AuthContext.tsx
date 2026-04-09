@@ -54,20 +54,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        setFirebaseUser(fbUser);
-        // Fetch user profile from Firestore
-        const snap = await getDoc(doc(db, 'users', fbUser.uid));
-        if (snap.exists()) {
-          setUser(snap.data() as AppUser);
+      try {
+        if (fbUser) {
+          setFirebaseUser(fbUser);
+          // Fetch user profile from Firestore
+          const snap = await getDoc(doc(db, 'users', fbUser.uid));
+          if (snap.exists()) {
+            setUser(snap.data() as AppUser);
+          } else {
+            setUser(null);
+          }
         } else {
+          setFirebaseUser(null);
           setUser(null);
         }
-      } else {
+      } catch {
         setFirebaseUser(null);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsubscribe;
   }, []);
