@@ -20,6 +20,9 @@ export function useCallSessions(batchId: string | null) {
     const unsub = onSnapshot(q, (snap) => {
       setCalls(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession)));
       setLoading(false);
+    }, (err) => {
+      console.error('[useCallSessions]', err.message);
+      setLoading(false);
     });
     return unsub;
   }, [batchId]);

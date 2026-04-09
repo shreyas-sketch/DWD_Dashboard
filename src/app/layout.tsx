@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 
 export const metadata: Metadata = {
   title: 'Mudita',
@@ -12,6 +13,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="bg-mesh min-h-screen">
+        <ThemeProvider>
         <AuthProvider>
           {children}
           <Toaster
@@ -26,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             }}
           />
         </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

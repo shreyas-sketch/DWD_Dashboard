@@ -19,6 +19,9 @@ export function useBatches(levelId: string | null) {
     const unsub = onSnapshot(q, (snap) => {
       setBatches(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Batch)));
       setLoading(false);
+    }, (err) => {
+      console.error('[useBatches]', err.message);
+      setLoading(false);
     });
     return unsub;
   }, [levelId]);

@@ -15,9 +15,13 @@ import {
   Menu,
   X,
   Zap,
+  Sun,
+  Moon,
+  UserCog,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import type { UserRole } from '@/types';
 
 interface NavItem {
@@ -63,6 +67,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<string[]>(['Master']);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -154,7 +159,11 @@ export function Sidebar() {
 
       {/* User info */}
       <div className="p-3 border-t border-white/8">
-        <div className="flex items-center gap-3 px-2 py-2 mb-1">
+        <Link
+          href="/dashboard/profile"
+          onClick={() => setMobileOpen(false)}
+          className={cn('flex items-center gap-3 px-2 py-2 mb-1 rounded-xl hover:bg-white/5 transition-all cursor-pointer', pathname === '/dashboard/profile' && 'bg-white/5')}
+        >
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
             {user.displayName?.charAt(0).toUpperCase() ?? 'U'}
           </div>
@@ -164,7 +173,15 @@ export function Sidebar() {
               {user.role.replace(/_/g, ' ')}
             </p>
           </div>
-        </div>
+          <UserCog size={14} className="text-slate-500" />
+        </Link>
+        <button
+          onClick={toggleTheme}
+          className="sidebar-item w-full mb-0.5"
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+        </button>
         <button
           onClick={() => logout()}
           className="sidebar-item w-full text-red-400 hover:text-red-300 hover:bg-red-500/10"

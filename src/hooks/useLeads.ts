@@ -19,6 +19,9 @@ export function useLeads(batchId: string | null) {
     const unsub = onSnapshot(q, (snap) => {
       setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
       setLoading(false);
+    }, (err) => {
+      console.error('[useLeads]', err.message);
+      setLoading(false);
     });
     return unsub;
   }, [batchId]);
@@ -39,6 +42,9 @@ export function useAllLeads(handlerId: string | null) {
     );
     const unsub = onSnapshot(q, (snap) => {
       setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
+      setLoading(false);
+    }, (err) => {
+      console.error('[useAllLeads]', err.message);
       setLoading(false);
     });
     return unsub;

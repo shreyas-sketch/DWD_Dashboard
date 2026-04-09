@@ -19,6 +19,9 @@ export function useLevels(programId: string | null) {
     const unsub = onSnapshot(q, (snap) => {
       setLevels(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Level)));
       setLoading(false);
+    }, (err) => {
+      console.error('[useLevels]', err.message);
+      setLoading(false);
     });
     return unsub;
   }, [programId]);

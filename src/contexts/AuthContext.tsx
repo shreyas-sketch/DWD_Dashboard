@@ -54,26 +54,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      try {
-        if (fbUser) {
-          setFirebaseUser(fbUser);
-          // Fetch user profile from Firestore
+      if (fbUser) {
+        setFirebaseUser(fbUser);
+        try {
           const snap = await getDoc(doc(db, 'users', fbUser.uid));
           if (snap.exists()) {
             setUser(snap.data() as AppUser);
           } else {
+            console.error('[Auth] Firestore user doc not found for UID:', fbUser.uid);
             setUser(null);
           }
-        } else {
-          setFirebaseUser(null);
+        } catch (err) {
+          // Firestore read failed (e.g. permissions) — keep auth state, skip profile
+          console.error('[Auth] Firestore read error:', err);
           setUser(null);
         }
-      } catch {
+      } else {
         setFirebaseUser(null);
         setUser(null);
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     });
     return unsubscribe;
   }, []);
