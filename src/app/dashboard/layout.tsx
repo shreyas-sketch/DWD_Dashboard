@@ -1,5 +1,9 @@
 'use client';
 
+// Opt out of static prerendering for all dashboard routes.
+// These pages require Firebase/auth which is client-only.
+export const dynamic = 'force-dynamic';
+
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';

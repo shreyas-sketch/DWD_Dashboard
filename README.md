@@ -161,6 +161,8 @@ git push origin main
 3. Click **Environment Variables** and add all variables from your `.env.local`
 
 > ⚠️ For `FIREBASE_ADMIN_PRIVATE_KEY`, paste the raw value including the `-----BEGIN PRIVATE KEY-----` lines. Vercel handles newlines automatically.
+> 
+> ⚠️ For all `NEXT_PUBLIC_FIREBASE_*` values, paste the raw value without surrounding quotes. If you paste values like `"AIza..."` into the Vercel UI, the quotes become part of the value and Firebase will fail with `auth/invalid-api-key`.
 
 ### Step 3: Deploy
 

@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@types/papaparse": "^5.3.14",
     "@types/uuid": "^10.0.0",
     "clsx": "^2.1.1",
