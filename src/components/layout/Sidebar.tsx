@@ -86,7 +86,7 @@ export function Sidebar() {
             <Zap size={16} className="text-white" />
           </div>
           <div>
-            <p className="text-sm font-bold text-slate-100">DWD Dashboard</p>
+            <p className="text-sm font-bold text-slate-100">Mudita</p>
             <p className="text-xs text-slate-500">Backend System</p>
           </div>
         </div>

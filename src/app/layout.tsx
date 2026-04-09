@@ -4,8 +4,8 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 
 export const metadata: Metadata = {
-  title: 'DWD Dashboard',
-  description: 'Digital Wealth Domination - Backend Dashboard',
+  title: 'Mudita',
+  description: 'Mudita — Backend Assist',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
