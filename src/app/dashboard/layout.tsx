@@ -11,17 +11,17 @@ import { DashboardShell } from '@/components/layout/DashboardShell';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { firebaseUser, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !firebaseUser) {
       router.replace('/login');
     }
-  }, [loading, user, router]);
+  }, [loading, firebaseUser, router]);
 
   if (loading) return <PageLoader />;
-  if (!user) return null;
+  if (!firebaseUser) return null;
 
   return <DashboardShell>{children}</DashboardShell>;
 }
