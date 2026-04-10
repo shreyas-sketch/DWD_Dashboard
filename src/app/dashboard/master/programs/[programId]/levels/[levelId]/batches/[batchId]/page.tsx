@@ -1026,7 +1026,7 @@ export default function BatchDetailPage() {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [program, setProgram] = useState<Program | null>(null);
   const [level, setLevel] = useState<Level | null>(null);
-  const [tab, setTab] = useState<Tab>('leads');
+  const [tab, setTab] = useState<Tab>('calls');
 
   useEffect(() => {
     Promise.all([
@@ -1041,8 +1041,8 @@ export default function BatchDetailPage() {
   }, [programId, levelId, batchId]);
 
   const tabs: { key: Tab; label: string }[] = [
+    { key: 'calls', label: 'Calls' },
     { key: 'leads', label: 'Leads' },
-    { key: 'calls', label: 'Call Sessions' },
     { key: 'fields', label: 'Custom Fields' },
     { key: 'report', label: 'Full Report' },
   ];

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Plus, Package, Pencil, Trash2, ChevronRight, ChevronLeft, Calendar } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
@@ -65,6 +65,7 @@ function BatchForm({
 
 export default function LevelDetailPage() {
   const { programId, levelId } = useParams<{ programId: string; levelId: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const { batches, loading } = useBatches(levelId);
   const [program, setProgram] = useState<Program | null>(null);
@@ -94,7 +95,7 @@ export default function LevelDetailPage() {
       toast.error('Batch number must be unique in this level');
       return;
     }
-    await createDocument<Omit<Batch, 'id'>>('batches', {
+    const newId = await createDocument<Omit<Batch, 'id'>>('batches', {
       ...data,
       programId,
       levelId,
@@ -102,7 +103,8 @@ export default function LevelDetailPage() {
       updatedAt: new Date().toISOString(),
       createdBy: user!.uid,
     });
-    toast.success('Batch created!');
+    toast.success('Batch created! Add calls now.');
+    router.push(`/dashboard/master/programs/${programId}/levels/${levelId}/batches/${newId}`);
   }
 
   async function handleUpdate(data: BatchFormData) {
