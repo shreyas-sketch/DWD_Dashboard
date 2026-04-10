@@ -2,20 +2,23 @@
 
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { ClipboardList, Search, Filter } from 'lucide-react';
+import { ClipboardList, Search, Filter, X } from 'lucide-react';
 import {
-  collection, query, where, orderBy, onSnapshot, getDocs,
+  collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePrograms } from '@/hooks/usePrograms';
+import { useLevels } from '@/hooks/useLevels';
+import { useBatches } from '@/hooks/useBatches';
 import { updateDocument, createDocument } from '@/lib/firestore';
 import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 import { formatCallSessionLabel, sortCallSessions } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
-  Lead, CallSession, Batch, Level, Program, LeadCallReport,
+  Lead, CallSession, Batch, LeadCallReport,
   CallingAssistStatus, HandlerStatus,
 } from '@/types';
 
@@ -246,68 +249,91 @@ function BackendAssistView({ leads, calls, reports, uid }: {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function AssignDataPage() {
   const { user } = useAuth();
-  const { programs } = usePrograms();
-  const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null);
+
+  // ── Cascading filters ──
+  const { programs, loading: programsLoading } = usePrograms();
+  const [selectedProgramId, setSelectedProgramId] = useState('');
+  const { levels, loading: levelsLoading } = useLevels(selectedProgramId || null);
+  const [selectedLevelId, setSelectedLevelId] = useState('');
+  const { batches, loading: batchesLoading } = useBatches(selectedLevelId || null);
+  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [appliedBatchId, setAppliedBatchId] = useState('');
+  const [appliedBatch, setAppliedBatch] = useState<Batch | null>(null);
+
+  // ── Live data for the applied batch ──
   const [leads, setLeads] = useState<Lead[]>([]);
   const [calls, setCalls] = useState<CallSession[]>([]);
   const [reports, setReports] = useState<LeadCallReport[]>([]);
-  const [batchOptions, setBatchOptions] = useState<{ value: string; label: string; batch: Batch }[]>([]);
-  const [selectedBatchId, setSelectedBatchId] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Build batch dropdown from all batches
-  useEffect(() => {
-    if (!user) return;
-    const fetchBatches = async () => {
-      const snap = await getDocs(collection(db, 'batches'));
-      const allBatches = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Batch));
-      // For backend_assist, filter to batches where they are a handler —
-      // we simplify by showing all batches (leads will auto-filter by handler)
-      const opts = await Promise.all(
-        allBatches.map(async (b) => {
-          const [pSnap, lSnap] = await Promise.all([
-            getDocs(query(collection(db, 'programs'), where('__name__', '==', b.programId))),
-            getDocs(query(collection(db, 'levels'), where('__name__', '==', b.levelId))),
-          ]);
-          const pName = pSnap.docs[0]?.data()?.name ?? '';
-          const lName = lSnap.docs[0]?.data()?.name ?? '';
-          return { value: b.id, label: `${pName} › ${lName} › Batch ${b.batchNumber}`, batch: b };
-        }),
-      );
-      setBatchOptions(opts);
-    };
-    fetchBatches();
-  }, [user]);
+  const filtersLoading = programsLoading || levelsLoading || batchesLoading;
 
-  // Load data when batch selected
+  function handleProgramChange(programId: string) {
+    setSelectedProgramId(programId);
+    setSelectedLevelId('');
+    setSelectedBatchId('');
+  }
+
+  function handleLevelChange(levelId: string) {
+    setSelectedLevelId(levelId);
+    setSelectedBatchId('');
+  }
+
+  function handleApply() {
+    const batch = batches.find((b) => b.id === selectedBatchId) ?? null;
+    setAppliedBatchId(selectedBatchId);
+    setAppliedBatch(batch);
+  }
+
+  function handleClear() {
+    setSelectedProgramId('');
+    setSelectedLevelId('');
+    setSelectedBatchId('');
+    setAppliedBatchId('');
+    setAppliedBatch(null);
+    setLeads([]);
+    setCalls([]);
+    setReports([]);
+  }
+
+  // Load live data when a batch is applied
   useEffect(() => {
-    if (!selectedBatchId) return;
+    if (!appliedBatchId) return;
     setLoading(true);
 
     const leadsQ =
       user?.role === 'backend_assist'
-        ? query(collection(db, 'leads'), where('batchId', '==', selectedBatchId), where('handlerId', '==', user.uid), orderBy('serialNumber', 'asc'))
-        : query(collection(db, 'leads'), where('batchId', '==', selectedBatchId), orderBy('serialNumber', 'asc'));
+        ? query(collection(db, 'leads'), where('batchId', '==', appliedBatchId), where('handlerId', '==', user.uid), orderBy('serialNumber', 'asc'))
+        : query(collection(db, 'leads'), where('batchId', '==', appliedBatchId), orderBy('serialNumber', 'asc'));
 
     const callsQ = query(
       collection(db, 'callSessions'),
-      where('batchId', '==', selectedBatchId),
+      where('batchId', '==', appliedBatchId),
       orderBy('date', 'asc'),
       orderBy('order', 'asc'),
     );
 
-    const reportsQ = query(collection(db, 'callReports'), where('batchId', '==', selectedBatchId));
+    const reportsQ = query(collection(db, 'callReports'), where('batchId', '==', appliedBatchId));
 
     const unsubs = [
-      onSnapshot(leadsQ, (snap) => { setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead))); setLoading(false); }),
+      onSnapshot(leadsQ, (snap) => {
+        setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
+        setLoading(false);
+      }),
       onSnapshot(callsQ, (snap) => {
         setCalls(sortCallSessions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession))));
       }),
-      onSnapshot(reportsQ, (snap) => { setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() } as LeadCallReport))); }),
+      onSnapshot(reportsQ, (snap) => {
+        setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() } as LeadCallReport)));
+      }),
     ];
 
     return () => unsubs.forEach((u) => u());
-  }, [selectedBatchId, user]);
+  }, [appliedBatchId, user]);
+
+  const selectedProgram = programs.find((p) => p.id === selectedProgramId);
+  const selectedLevel = levels.find((l) => l.id === selectedLevelId);
+  const selectedBatch = batches.find((b) => b.id === selectedBatchId);
 
   return (
     <div>
@@ -322,27 +348,76 @@ export default function AssignDataPage() {
         </p>
       </div>
 
+      {/* ── Filters card ── */}
       <div className="glass-card p-5 mb-5">
-        <Select
-          label="Select Batch"
-          value={selectedBatchId}
-          onChange={(e) => setSelectedBatchId(e.target.value)}
-          placeholder="— Choose a batch —"
-          options={batchOptions.map((o) => ({ value: o.value, label: o.label }))}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <Select
+            label="Program"
+            value={selectedProgramId}
+            onChange={(e) => handleProgramChange(e.target.value)}
+            placeholder="— Select program —"
+            options={programs.map((p) => ({ value: p.id, label: p.name }))}
+            disabled={programsLoading}
+          />
+          <Select
+            label="Level"
+            value={selectedLevelId}
+            onChange={(e) => handleLevelChange(e.target.value)}
+            placeholder="— Select level —"
+            options={levels.map((l) => ({ value: l.id, label: l.name }))}
+            disabled={!selectedProgramId || levelsLoading}
+          />
+          <Select
+            label="Batch"
+            value={selectedBatchId}
+            onChange={(e) => setSelectedBatchId(e.target.value)}
+            placeholder="— Select batch —"
+            options={batches.map((b) => ({
+              value: b.id,
+              label: b.batchName ? `${b.batchName} (#${b.batchNumber})` : `Batch ${b.batchNumber}`,
+            }))}
+            disabled={!selectedLevelId || batchesLoading}
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          {/* Applied label */}
+          {appliedBatch && (
+            <p className="text-xs text-slate-500 truncate">
+              Showing:{' '}
+              <span className="text-slate-300 font-medium">
+                {selectedProgram?.name} › {selectedLevel?.name} › {appliedBatch.batchName || `Batch ${appliedBatch.batchNumber}`}
+              </span>
+            </p>
+          )}
+          <div className="flex gap-2 ml-auto">
+            {appliedBatchId && (
+              <Button variant="secondary" size="sm" onClick={handleClear}>
+                <X size={14} /> Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={handleApply}
+              disabled={!selectedBatchId || filtersLoading}
+            >
+              <Filter size={14} /> Load Batch
+            </Button>
+          </div>
+        </div>
       </div>
 
-      {!selectedBatchId ? (
+      {/* ── Content ── */}
+      {!appliedBatchId ? (
         <div className="glass-card p-12 text-center">
           <ClipboardList size={40} className="text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400">Select a batch to view and update data</p>
+          <p className="text-slate-400">Select a program, level and batch above, then click <strong>Load Batch</strong></p>
         </div>
       ) : loading ? (
         <div className="glass-card p-8 text-center text-slate-500">Loading…</div>
       ) : leads.length === 0 ? (
         <div className="glass-card p-8 text-center text-slate-500">
-          No leads found for this batch
-          {user?.role === 'backend_assist' && ' assigned to you'}.
+          No leads found for this batch{user?.role === 'backend_assist' && ' assigned to you'}.
         </div>
       ) : (
         <div className="glass-card p-5">
