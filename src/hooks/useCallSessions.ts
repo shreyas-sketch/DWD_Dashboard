@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { sortCallSessions } from '@/lib/utils';
 import type { CallSession } from '@/types';
 
 export function useCallSessions(batchId: string | null) {
@@ -18,7 +19,7 @@ export function useCallSessions(batchId: string | null) {
       orderBy('order', 'asc'),
     );
     const unsub = onSnapshot(q, (snap) => {
-      setCalls(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession)));
+      setCalls(sortCallSessions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession))));
       setLoading(false);
     }, (err) => {
       console.error('[useCallSessions]', err.message);

@@ -23,14 +23,61 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { distributeLeads, formatDate } from '@/lib/utils';
+import {
+  distributeLeads,
+  formatDate,
+  getCallSessionGroupKey,
+  getCallSessionTypeLabel,
+  sortCallSessions,
+} from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
-  Program, Level, Batch, CallSession, CustomField, Lead, LeadCallReport, CustomFieldType,
+  Program, Level, Batch, CallSession, CallSessionType, CustomField, Lead, LeadCallReport, CustomFieldType,
 } from '@/types';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 type Tab = 'leads' | 'calls' | 'fields' | 'report';
+
+type CallGroup = {
+  key: string;
+  name: string;
+  date: string;
+  order: number;
+  sessions: CallSession[];
+};
+
+const CALL_SESSION_TYPE_OPTIONS: Array<{ value: CallSessionType; label: string }> = [
+  { value: 'main', label: 'Main Call' },
+  { value: 'doubt1', label: 'Doubt Call 1' },
+  { value: 'doubt2', label: 'Doubt Call 2' },
+];
+
+function groupCallSessions(calls: CallSession[]): CallGroup[] {
+  const groups = new Map<string, CallGroup>();
+
+  sortCallSessions(calls).forEach((call) => {
+    const key = getCallSessionGroupKey(call);
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.sessions.push(call);
+      return;
+    }
+
+    groups.set(key, {
+      key,
+      name: call.name,
+      date: call.date,
+      order: call.order,
+      sessions: [call],
+    });
+  });
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    sessions: sortCallSessions(group.sessions),
+  }));
+}
 
 // ─── Helper: upsert call report ────────────────────────────────────────────────
 async function upsertReport(
@@ -67,37 +114,57 @@ function CallsTab({
   const { calls, loading } = useCallSessions(batchId);
   const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState<CallSession | null>(null);
+  const callGroups = groupCallSessions(calls);
 
-  async function handleCreate(date: string, name: string) {
-    const sameDayCalls = calls.filter((c) => c.date === date);
-    await createDocument<Omit<CallSession, 'id'>>('callSessions', {
-      batchId, programId, levelId,
-      date, name,
-      order: sameDayCalls.length,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      createdBy: user!.uid,
+  async function handleCreate(date: string, name: string, sessionTypes: CallSessionType[]) {
+    const trimmedName = name.trim();
+    const normalizedName = trimmedName.toLowerCase();
+
+    if (calls.some((call) => call.date === date && call.name.trim().toLowerCase() === normalizedName)) {
+      toast.error('A call with this date and name already exists');
+      return;
+    }
+
+    const nextOrder = calls.length === 0 ? 0 : Math.max(...calls.map((call) => call.order)) + 1;
+    const write = writeBatch(db);
+    const now = new Date().toISOString();
+
+    sessionTypes.forEach((sessionType) => {
+      const ref = doc(collection(db, 'callSessions'));
+      write.set(ref, {
+        batchId,
+        programId,
+        levelId,
+        date,
+        name: trimmedName,
+        order: nextOrder,
+        sessionType,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user!.uid,
+      });
     });
-    toast.success('Call session added!');
+
+    await write.commit();
+    toast.success('Call added');
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Delete this call session?')) return;
-    await deleteDocument('callSessions', id);
+  async function handleDelete(group: CallGroup) {
+    if (!confirm('Delete this call and all of its sub-sessions?')) return;
+
+    const write = writeBatch(db);
+    group.sessions.forEach((session) => {
+      write.delete(doc(db, 'callSessions', session.id));
+    });
+
+    await write.commit();
     toast.success('Deleted');
   }
-
-  const groupedByDate = calls.reduce<Record<string, CallSession[]>>((acc, c) => {
-    if (!acc[c.date]) acc[c.date] = [];
-    acc[c.date].push(c);
-    return acc;
-  }, {});
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-slate-200">Call Sessions</h3>
+        <h3 className="font-semibold text-slate-200">Calls</h3>
         {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
           <Button size="sm" onClick={() => setShowAdd(true)}>
             <Plus size={14} /> Add Call
@@ -107,62 +174,107 @@ function CallsTab({
 
       {loading ? (
         <p className="text-slate-500 text-sm">Loading…</p>
-      ) : calls.length === 0 ? (
+      ) : callGroups.length === 0 ? (
         <div className="text-center py-10">
           <Phone size={32} className="text-slate-600 mx-auto mb-2" />
-          <p className="text-slate-500 text-sm">No call sessions yet</p>
+          <p className="text-slate-500 text-sm">No calls configured yet</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(groupedByDate)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([date, dateCalls]) => (
-              <div key={date}>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  {formatDate(date)}
-                </p>
-                <div className="space-y-2">
-                  {dateCalls.map((c) => (
-                    <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/6">
-                      <Phone size={14} className="text-indigo-400 flex-shrink-0" />
-                      <span className="flex-1 text-sm text-slate-200">{c.name}</span>
-                      {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
-                        <button onClick={() => handleDelete(c.id)} className="text-slate-600 hover:text-red-400 transition-colors">
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+          {callGroups.map((group) => (
+            <div key={group.key} className="rounded-2xl border border-white/8 bg-white/3 p-4">
+              <div className="flex items-start gap-3">
+                <Phone size={14} className="text-indigo-400 flex-shrink-0 mt-1" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-200">{group.name}</p>
+                  <p className="text-xs text-slate-500 mt-1">{formatDate(group.date)}</p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {group.sessions.map((session) => (
+                      <Badge key={session.id} variant="info">{getCallSessionTypeLabel(session.sessionType)}</Badge>
+                    ))}
+                  </div>
                 </div>
+                {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
+                  <button onClick={() => handleDelete(group)} className="text-slate-600 hover:text-red-400 transition-colors">
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
-            ))}
+            </div>
+          ))}
         </div>
       )}
 
-      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Call Session">
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Call">
         <CallForm onSave={handleCreate} onClose={() => setShowAdd(false)} />
       </Modal>
     </div>
   );
 }
 
-function CallForm({ onSave, onClose }: { onSave: (date: string, name: string) => Promise<void>; onClose: () => void }) {
+function CallForm({
+  onSave,
+  onClose,
+}: {
+  onSave: (date: string, name: string, sessionTypes: CallSessionType[]) => Promise<void>;
+  onClose: () => void;
+}) {
   const [date, setDate] = useState('');
   const [name, setName] = useState('');
+  const [sessionTypes, setSessionTypes] = useState<Record<CallSessionType, boolean>>({
+    main: true,
+    doubt1: false,
+    doubt2: false,
+  });
   const [loading, setLoading] = useState(false);
+
+  function toggleSessionType(sessionType: CallSessionType) {
+    setSessionTypes((current) => ({
+      ...current,
+      [sessionType]: !current[sessionType],
+    }));
+  }
 
   async function handle(e: React.FormEvent) {
     e.preventDefault();
     if (!date || !name.trim()) return;
+    const selectedSessionTypes = CALL_SESSION_TYPE_OPTIONS
+      .filter((option) => sessionTypes[option.value])
+      .map((option) => option.value);
+
+    if (selectedSessionTypes.length === 0) {
+      toast.error('Select at least one sub-session');
+      return;
+    }
+
     setLoading(true);
-    try { await onSave(date, name.trim()); onClose(); }
+    try { await onSave(date, name.trim(), selectedSessionTypes); onClose(); }
     finally { setLoading(false); }
   }
 
   return (
     <form onSubmit={handle} className="space-y-4">
       <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-      <Input label="Call Name" placeholder="e.g. 1st Day Call, Doubt Session" value={name} onChange={(e) => setName(e.target.value)} required />
+      <Input label="Call Name" placeholder="e.g. Call 1st, 3Day - 1" value={name} onChange={(e) => setName(e.target.value)} required />
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-300">Subheaders</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {CALL_SESSION_TYPE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/3 px-3 py-2 text-sm text-slate-300"
+            >
+              <input
+                type="checkbox"
+                checked={sessionTypes[option.value]}
+                onChange={() => toggleSessionType(option.value)}
+                className="h-4 w-4 rounded border-white/10 bg-slate-950 text-indigo-400"
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
       <div className="flex gap-3 pt-2">
         <Button type="submit" loading={loading} className="flex-1">Add Call</Button>
         <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
@@ -720,9 +832,18 @@ function ReportTab({ batchId }: { batchId: string }) {
   const { fields } = useCustomFields(batchId);
   const { reportMap } = useCallReports(batchId);
   const { user } = useAuth();
-  const [selectedCall, setSelectedCall] = useState<string>('all');
+  const [selectedCallGroup, setSelectedCallGroup] = useState<string>('all');
+  const callGroups = groupCallSessions(calls);
 
-  const displayCalls = selectedCall === 'all' ? calls : calls.filter((c) => c.id === selectedCall);
+  useEffect(() => {
+    if (selectedCallGroup !== 'all' && !callGroups.some((group) => group.key === selectedCallGroup)) {
+      setSelectedCallGroup('all');
+    }
+  }, [callGroups, selectedCallGroup]);
+
+  const displayGroups = selectedCallGroup === 'all'
+    ? callGroups
+    : callGroups.filter((group) => group.key === selectedCallGroup);
 
   async function handleReportChange(
     lead: Lead,
@@ -750,11 +871,11 @@ function ReportTab({ batchId }: { batchId: string }) {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h3 className="font-semibold text-slate-200">Report Table</h3>
         <Select
-          value={selectedCall}
-          onChange={(e) => setSelectedCall(e.target.value)}
+          value={selectedCallGroup}
+          onChange={(e) => setSelectedCallGroup(e.target.value)}
           options={[
             { value: 'all', label: 'All Calls' },
-            ...calls.map((c) => ({ value: c.id, label: `${formatDate(c.date)} — ${c.name}` })),
+            ...callGroups.map((group) => ({ value: group.key, label: `${formatDate(group.date)} — ${group.name}` })),
           ]}
           className="ml-auto text-xs"
         />
@@ -764,32 +885,47 @@ function ReportTab({ batchId }: { batchId: string }) {
         <table className="table-glass text-xs min-w-max">
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-950">Sr.</th>
-              <th className="sticky left-[50px] z-10 bg-slate-950">Name</th>
-              <th>Email</th>
-              <th>Phone</th>
-              <th>Handler</th>
-              {displayCalls.map((c) => (
-                <React.Fragment key={c.id}>
-                  <th colSpan={3 + fields.length} className="text-center border-l border-white/10">
-                    {formatDate(c.date)} — {c.name}
-                  </th>
+              <th rowSpan={4} className="sticky left-0 z-10 bg-slate-950">Sr.</th>
+              <th rowSpan={4} className="sticky left-[50px] z-10 bg-slate-950">Name</th>
+              <th rowSpan={4}>Email</th>
+              <th rowSpan={4}>Phone</th>
+              <th rowSpan={4}>Handler</th>
+              {displayGroups.map((group) => (
+                <th key={`${group.key}_name`} colSpan={group.sessions.length * (3 + fields.length)} className="text-center border-l border-white/10">
+                  {group.name}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {displayGroups.map((group) => (
+                <th key={`${group.key}_date`} colSpan={group.sessions.length * (3 + fields.length)} className="text-center border-l border-white/10 text-slate-400">
+                  {formatDate(group.date)}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {displayGroups.map((group) => (
+                <React.Fragment key={`${group.key}_sessions`}>
+                  {group.sessions.map((session) => (
+                    <th key={`${session.id}_session`} colSpan={3 + fields.length} className="border-l border-white/10 text-center text-indigo-300/80">
+                      {getCallSessionTypeLabel(session.sessionType)}
+                    </th>
+                  ))}
                 </React.Fragment>
               ))}
             </tr>
             <tr>
-              <th className="sticky left-0 z-10 bg-slate-950"></th>
-              <th className="sticky left-[50px] z-10 bg-slate-950"></th>
-              <th></th>
-              <th></th>
-              <th></th>
-              {displayCalls.map((c) => (
-                <React.Fragment key={c.id}>
-                  <th className="border-l border-white/10 text-indigo-300/80">Reg. Report</th>
-                  <th className="text-cyan-300/80">Calling Report</th>
-                  <th className="text-purple-300/80">Handler Report</th>
-                  {fields.map((f) => (
-                    <th key={f.id} className="text-amber-300/80">{f.label}</th>
+              {displayGroups.map((group) => (
+                <React.Fragment key={`${group.key}_fields`}>
+                  {group.sessions.map((session) => (
+                    <React.Fragment key={`${session.id}_columns`}>
+                      <th className="border-l border-white/10 text-indigo-300/80">Reg. Report</th>
+                      <th className="text-cyan-300/80">Calling Report</th>
+                      <th className="text-purple-300/80">Handler Report</th>
+                      {fields.map((field) => (
+                        <th key={`${session.id}_${field.id}`} className="text-amber-300/80">{field.label}</th>
+                      ))}
+                    </React.Fragment>
                   ))}
                 </React.Fragment>
               ))}
@@ -803,17 +939,19 @@ function ReportTab({ batchId }: { batchId: string }) {
                 <td className="text-slate-400">{lead.email}</td>
                 <td className="text-slate-400">{lead.phone}</td>
                 <td className="text-slate-400 whitespace-nowrap">{lead.handlerName ?? '—'}</td>
-                {displayCalls.map((c) => {
-                  const rep = reportMap.get(`${lead.id}_${c.id}`);
-                  return (
-                    <React.Fragment key={c.id}>
+                {displayGroups.map((group) => (
+                  <React.Fragment key={group.key}>
+                    {group.sessions.map((session) => {
+                      const rep = reportMap.get(`${lead.id}_${session.id}`);
+                      return (
+                        <React.Fragment key={session.id}>
                       {/* Reg report */}
                       <td className="border-l border-white/6 min-w-[120px]">
                         {(user?.role === 'admin' || user?.role === 'backend_manager') ? (
                           <input
                             className="input-glass py-1 text-xs"
                             value={rep?.registrationReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, c, 'registrationReport', e.target.value)}
+                            onChange={(e) => handleReportChange(lead, session, 'registrationReport', e.target.value)}
                           />
                         ) : <span>{rep?.registrationReport || '—'}</span>}
                       </td>
@@ -823,7 +961,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                           <select
                             className="input-glass py-1 text-xs cursor-pointer"
                             value={rep?.callingAssistReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, c, 'callingAssistReport', e.target.value)}
+                            onChange={(e) => handleReportChange(lead, session, 'callingAssistReport', e.target.value)}
                           >
                             <option value="">—</option>
                             {CALLING_ASSIST_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -836,7 +974,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                           <select
                             className="input-glass py-1 text-xs cursor-pointer"
                             value={rep?.handlerReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, c, 'handlerReport', e.target.value)}
+                            onChange={(e) => handleReportChange(lead, session, 'handlerReport', e.target.value)}
                           >
                             <option value="">—</option>
                             {HANDLER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -851,7 +989,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                               <select
                                 className="input-glass py-1 text-xs cursor-pointer"
                                 value={rep?.customFieldValues?.[f.id] ?? ''}
-                                onChange={(e) => handleReportChange(lead, c, f.id, e.target.value)}
+                                onChange={(e) => handleReportChange(lead, session, f.id, e.target.value)}
                               >
                                 <option value="">—</option>
                                 {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
@@ -860,7 +998,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                               <input
                                 className="input-glass py-1 text-xs"
                                 value={rep?.customFieldValues?.[f.id] ?? ''}
-                                onChange={(e) => handleReportChange(lead, c, f.id, e.target.value)}
+                                onChange={(e) => handleReportChange(lead, session, f.id, e.target.value)}
                               />
                             )
                           ) : (
@@ -868,9 +1006,11 @@ function ReportTab({ batchId }: { batchId: string }) {
                           )}
                         </td>
                       ))}
-                    </React.Fragment>
-                  );
-                })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
               </tr>
             ))}
           </tbody>

@@ -46,12 +46,15 @@ export interface Batch {
   createdBy: string;
 }
 
+export type CallSessionType = 'main' | 'doubt1' | 'doubt2';
+
 export interface CallSession {
   id: string;
   batchId: string;
   programId: string;
   levelId: string;
   date: string; // ISO date string
+  sessionType?: CallSessionType;
   name: string; // e.g. "1st Day Call"
   order: number;
   createdAt: string;

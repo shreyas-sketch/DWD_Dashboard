@@ -12,7 +12,7 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { updateDocument, createDocument } from '@/lib/firestore';
 import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
-import { formatDate } from '@/lib/utils';
+import { formatCallSessionLabel, sortCallSessions } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
   Lead, CallSession, Batch, Level, Program, LeadCallReport,
@@ -85,10 +85,7 @@ function CallingAssistView({ leads, calls, reports, uid }: {
           label="Select Call Session"
           value={selectedCall}
           onChange={(e) => setSelectedCall(e.target.value)}
-          options={calls.map((c) => ({
-            value: c.id,
-            label: `${formatDate(c.date)} — ${c.name}`,
-          }))}
+          options={calls.map((c) => ({ value: c.id, label: formatCallSessionLabel(c) }))}
         />
       )}
 
@@ -182,10 +179,7 @@ function BackendAssistView({ leads, calls, reports, uid }: {
           label="Select Call Session"
           value={selectedCall}
           onChange={(e) => setSelectedCall(e.target.value)}
-          options={calls.map((c) => ({
-            value: c.id,
-            label: `${formatDate(c.date)} — ${c.name}`,
-          }))}
+          options={calls.map((c) => ({ value: c.id, label: formatCallSessionLabel(c) }))}
         />
       )}
 
@@ -306,7 +300,9 @@ export default function AssignDataPage() {
 
     const unsubs = [
       onSnapshot(leadsQ, (snap) => { setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead))); setLoading(false); }),
-      onSnapshot(callsQ, (snap) => { setCalls(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession))); }),
+      onSnapshot(callsQ, (snap) => {
+        setCalls(sortCallSessions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession))));
+      }),
       onSnapshot(reportsQ, (snap) => { setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() } as LeadCallReport))); }),
     ];
 
