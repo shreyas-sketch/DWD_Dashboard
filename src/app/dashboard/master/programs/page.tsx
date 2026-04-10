@@ -90,7 +90,7 @@ export default function ProgramsPage() {
           <h1 className="text-2xl font-bold gradient-text">Programs</h1>
           <p className="text-slate-500 text-sm mt-1">Manage training programs and mentors</p>
         </div>
-        {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+        {user?.role === 'admin' && (
           <Button onClick={() => setShowAdd(true)}>
             <Plus size={16} /> Add Program
           </Button>
@@ -133,7 +133,7 @@ export default function ProgramsPage() {
                 >
                   View Levels <ChevronRight size={14} />
                 </Link>
-                {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+                {user?.role === 'admin' && (
                   <>
                     <button
                       onClick={() => setEditing(p)}

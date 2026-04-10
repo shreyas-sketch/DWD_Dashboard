@@ -98,7 +98,7 @@ function CallsTab({
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-slate-200">Call Sessions</h3>
-        {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+        {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
           <Button size="sm" onClick={() => setShowAdd(true)}>
             <Plus size={14} /> Add Call
           </Button>
@@ -126,7 +126,7 @@ function CallsTab({
                     <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/3 border border-white/6">
                       <Phone size={14} className="text-indigo-400 flex-shrink-0" />
                       <span className="flex-1 text-sm text-slate-200">{c.name}</span>
-                      {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+                      {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
                         <button onClick={() => handleDelete(c.id)} className="text-slate-600 hover:text-red-400 transition-colors">
                           <Trash2 size={14} />
                         </button>
@@ -205,7 +205,7 @@ function FieldsTab({ batchId }: { batchId: string }) {
     ]);
   }
 
-  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager';
+  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
 
   return (
     <div>
@@ -397,7 +397,7 @@ function LeadsTab({
     setEditingLead(null);
   }
 
-  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager';
+  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
 
   return (
     <div>

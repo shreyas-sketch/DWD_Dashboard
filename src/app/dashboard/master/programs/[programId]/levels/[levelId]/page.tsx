@@ -108,7 +108,7 @@ export default function LevelDetailPage() {
     toast.success('Batch deleted');
   }
 
-  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager';
+  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
 
   return (
     <div>
