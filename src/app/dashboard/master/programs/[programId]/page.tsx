@@ -9,7 +9,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useLevels } from '@/hooks/useLevels';
 import { useAuth } from '@/contexts/AuthContext';
-import { createDocument, updateDocument, deleteDocument } from '@/lib/firestore';
+import { createDocument, updateDocument, deleteLevelCascade } from '@/lib/firestore';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -93,9 +93,13 @@ export default function ProgramDetailPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this level? All batches and leads inside will be removed.')) return;
-    await deleteDocument('levels', id);
-    toast.success('Level deleted');
+    if (!confirm('Delete this level? All batches, leads and call data inside will be permanently removed.')) return;
+    try {
+      await deleteLevelCascade(id);
+      toast.success('Level and all its data deleted');
+    } catch {
+      toast.error('Failed to delete level');
+    }
   }
 
   const canEdit = user?.role === 'admin' || user?.role === 'backend_manager';

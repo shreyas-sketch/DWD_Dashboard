@@ -164,7 +164,7 @@ export function Sidebar() {
           onClick={() => setMobileOpen(false)}
           className={cn('flex items-center gap-3 px-2 py-2 mb-1 rounded-xl hover:bg-white/5 transition-all cursor-pointer', pathname === '/dashboard/profile' && 'bg-white/5')}
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
             {user.displayName?.charAt(0).toUpperCase() ?? 'U'}
           </div>
           <div className="flex-1 min-w-0">

@@ -1,5 +1,5 @@
-import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
-import { getAuth, type Auth } from 'firebase/auth';
+import { initializeApp, getApps, deleteApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 
 // Must be declared before firebaseConfig so the isBrowser guard applies to initializeApp too.
@@ -54,3 +54,20 @@ export const db = (isBrowser && app
   : null) as Firestore;
 
 export default app;
+
+/**
+ * Create a Firebase Auth user WITHOUT affecting the current session.
+ * Uses a temporary secondary app instance so the admin stays logged in.
+ * Returns the new user's UID.
+ */
+export async function createAuthUserSecondary(email: string, password: string): Promise<string> {
+  const tempApp = initializeApp(firebaseConfig, `create-user-${Date.now()}`);
+  try {
+    const tempAuth = getAuth(tempApp);
+    const cred = await createUserWithEmailAndPassword(tempAuth, email, password);
+    await signOut(tempAuth);
+    return cred.user.uid;
+  } finally {
+    await deleteApp(tempApp);
+  }
+}

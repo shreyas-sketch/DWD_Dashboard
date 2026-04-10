@@ -317,6 +317,7 @@ function LeadsTab({
   const { users: assistants } = useUsers('backend_assist');
   const { user } = useAuth();
   const [showImport, setShowImport] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleDistribute() {
@@ -389,6 +390,13 @@ function LeadsTab({
     toast.success('Lead deleted');
   }
 
+  async function handleEditLead(name: string, email: string, phone: string) {
+    if (!editingLead) return;
+    await updateDocument('leads', editingLead.id, { name, email: email.toLowerCase(), phone });
+    toast.success('Lead updated');
+    setEditingLead(null);
+  }
+
   const canEdit = user?.role === 'admin' || user?.role === 'backend_manager';
 
   return (
@@ -454,9 +462,20 @@ function LeadsTab({
                   </td>
                   {canEdit && (
                     <td>
-                      <button onClick={() => handleDeleteLead(lead.id)} className="text-slate-600 hover:text-red-400 transition-colors">
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditingLead(lead)}
+                          className="p-1.5 text-slate-500 hover:text-indigo-400 transition-colors rounded-lg hover:bg-indigo-500/10"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteLead(lead.id)}
+                          className="p-1.5 text-slate-500 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -473,7 +492,52 @@ function LeadsTab({
           onClose={() => setShowImport(false)}
         />
       </Modal>
+
+      <Modal open={!!editingLead} onClose={() => setEditingLead(null)} title="Edit Lead">
+        {editingLead && (
+          <LeadEditForm
+            initial={editingLead}
+            onSave={handleEditLead}
+            onClose={() => setEditingLead(null)}
+          />
+        )}
+      </Modal>
     </div>
+  );
+}
+
+function LeadEditForm({
+  initial,
+  onSave,
+  onClose,
+}: {
+  initial: Lead;
+  onSave: (name: string, email: string, phone: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [email, setEmail] = useState(initial.email);
+  const [phone, setPhone] = useState(initial.phone);
+  const [loading, setLoading] = useState(false);
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setLoading(true);
+    try { await onSave(name.trim(), email.trim(), phone.trim()); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-4">
+      <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
+      <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" loading={loading} className="flex-1">Save Changes</Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
   );
 }
 

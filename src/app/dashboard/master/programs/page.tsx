@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { Plus, BookOpen, Pencil, Trash2, ChevronRight, User } from 'lucide-react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useAuth } from '@/contexts/AuthContext';
-import { createDocument, updateDocument, deleteDocument } from '@/lib/firestore';
+import { createDocument, updateDocument, deleteProgramCascade } from '@/lib/firestore';
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -74,9 +74,13 @@ export default function ProgramsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this program? All associated levels, batches and leads will be removed.')) return;
-    await deleteDocument('programs', id);
-    toast.success('Program deleted');
+    if (!confirm('Delete this program? All associated levels, batches, leads and call data will be permanently removed.')) return;
+    try {
+      await deleteProgramCascade(id);
+      toast.success('Program and all its data deleted');
+    } catch {
+      toast.error('Failed to delete program');
+    }
   }
 
   return (

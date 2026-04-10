@@ -10,7 +10,7 @@ import {
   browserSessionPersistence,
   User,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import type { AppUser } from '@/types';
 
@@ -53,29 +53,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [firebaseUser, logout]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    let unsubUser: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (fbUser) => {
+      // Clean up previous user doc listener
+      if (unsubUser) { unsubUser(); unsubUser = null; }
+
       if (fbUser) {
         setFirebaseUser(fbUser);
-        try {
-          const snap = await getDoc(doc(db, 'users', fbUser.uid));
-          if (snap.exists()) {
-            setUser(snap.data() as AppUser);
-          } else {
-            console.error('[Auth] Firestore user doc not found for UID:', fbUser.uid);
+        // Real-time listener on user doc — auto-syncs name, photoURL, role changes
+        unsubUser = onSnapshot(
+          doc(db, 'users', fbUser.uid),
+          (snap) => {
+            if (snap.exists()) {
+              setUser(snap.data() as AppUser);
+            } else {
+              console.error('[Auth] Firestore user doc not found for UID:', fbUser.uid);
+              setUser(null);
+            }
+            setLoading(false);
+          },
+          (err) => {
+            console.error('[Auth] Firestore read error:', err);
             setUser(null);
-          }
-        } catch (err) {
-          // Firestore read failed (e.g. permissions) — keep auth state, skip profile
-          console.error('[Auth] Firestore read error:', err);
-          setUser(null);
-        }
+            setLoading(false);
+          },
+        );
       } else {
         setFirebaseUser(null);
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return unsubscribe;
+
+    return () => {
+      unsubAuth();
+      if (unsubUser) unsubUser();
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string, rememberMe: boolean) => {

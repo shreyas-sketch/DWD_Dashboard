@@ -4,11 +4,8 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { UserPlus, Trash2, Shield, Users } from 'lucide-react';
-import {
-  createUserWithEmailAndPassword,
-} from 'firebase/auth';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { db, createAuthUserSecondary } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUsers } from '@/hooks/useUsers';
 import { Modal } from '@/components/ui/Modal';
@@ -39,11 +36,11 @@ function CreateUserForm({ onClose }: { onClose: () => void }) {
     if (!displayName.trim() || !email.trim() || password.length < 8) return;
     setLoading(true);
     try {
-      // Create Firebase Auth user
-      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      // Create Auth user via secondary app — keeps admin session intact
+      const uid = await createAuthUserSecondary(email.trim(), password);
       // Store profile in Firestore
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        uid: cred.user.uid,
+      await setDoc(doc(db, 'users', uid), {
+        uid,
         email: email.trim().toLowerCase(),
         displayName: displayName.trim(),
         role,

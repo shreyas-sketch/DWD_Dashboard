@@ -95,3 +95,84 @@ export async function batchWrite(
   }
   await batch.commit();
 }
+
+// ─── Cascade deletes ──────────────────────────────────────────────────────────
+
+/** Delete every doc returned by a query, chunked to stay under Firestore's 500-op batch limit. */
+async function deleteByQuery(
+  collectionPath: string,
+  constraints: QueryConstraint[],
+): Promise<void> {
+  const snap = await getDocs(query(collection(db, collectionPath), ...constraints));
+  if (snap.empty) return;
+  for (let i = 0; i < snap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    snap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+}
+
+/**
+ * Delete a program and all its child data:
+ * levels → batches → leads, callSessions, callReports, customFields
+ */
+export async function deleteProgramCascade(programId: string): Promise<void> {
+  // Fetch batches upfront (needed for per-batchId collections)
+  const batchSnap = await getDocs(
+    query(collection(db, 'batches'), where('programId', '==', programId)),
+  );
+
+  // Delete per-batch sub-collections in parallel
+  await Promise.all(
+    batchSnap.docs.map((b) =>
+      Promise.all([
+        deleteByQuery('callReports', [where('batchId', '==', b.id)]),
+        deleteByQuery('customFields', [where('batchId', '==', b.id)]),
+      ]),
+    ),
+  );
+
+  // Delete collections that store programId directly
+  await deleteByQuery('callSessions', [where('programId', '==', programId)]);
+  await deleteByQuery('leads', [where('programId', '==', programId)]);
+
+  // Delete batches
+  for (let i = 0; i < batchSnap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    batchSnap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  await deleteByQuery('levels', [where('programId', '==', programId)]);
+  await deleteDoc(doc(db, 'programs', programId));
+}
+
+/**
+ * Delete a level and all its child data:
+ * batches → leads, callSessions, callReports, customFields
+ */
+export async function deleteLevelCascade(levelId: string): Promise<void> {
+  const batchSnap = await getDocs(
+    query(collection(db, 'batches'), where('levelId', '==', levelId)),
+  );
+
+  await Promise.all(
+    batchSnap.docs.map((b) =>
+      Promise.all([
+        deleteByQuery('callReports', [where('batchId', '==', b.id)]),
+        deleteByQuery('customFields', [where('batchId', '==', b.id)]),
+      ]),
+    ),
+  );
+
+  await deleteByQuery('callSessions', [where('levelId', '==', levelId)]);
+  await deleteByQuery('leads', [where('levelId', '==', levelId)]);
+
+  for (let i = 0; i < batchSnap.docs.length; i += 400) {
+    const batch = writeBatch(db);
+    batchSnap.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  }
+
+  await deleteDoc(doc(db, 'levels', levelId));
+}

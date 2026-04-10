@@ -2,20 +2,20 @@
 
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
-import { User, Mail, Lock, Save, ShieldCheck } from 'lucide-react';
+import { UserIcon, Mail, Lock, Save, ShieldCheck } from 'lucide-react';
 import {
   updatePassword,
   EmailAuthProvider,
   reauthenticateWithCredential,
 } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
-import { auth, db } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 
 export default function ProfilePage() {
-  const { user, firebaseUser } = useAuth();
+  const { user, firebaseUser, logout } = useAuth();
 
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [nameLoading, setNameLoading] = useState(false);
@@ -45,26 +45,18 @@ export default function ProfilePage() {
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     if (!firebaseUser || !firebaseUser.email) return;
-    if (newPassword.length < 8) {
-      toast.error('Password must be at least 8 characters');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
+    if (newPassword.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+    if (newPassword !== confirmPassword) { toast.error('Passwords do not match'); return; }
     setPassLoading(true);
     try {
       const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
       await reauthenticateWithCredential(firebaseUser, credential);
       await updatePassword(firebaseUser, newPassword);
-      toast.success('Password changed successfully');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      toast.success('Password changed — logging you out…');
+      setTimeout(() => logout(), 1500);
     } catch (err: unknown) {
-      const msg = (err as { code?: string })?.code ?? '';
-      if (msg.includes('wrong-password') || msg.includes('invalid-credential')) {
+      const code = (err as { code?: string })?.code ?? '';
+      if (code.includes('wrong-password') || code.includes('invalid-credential')) {
         toast.error('Current password is incorrect');
       } else {
         toast.error('Failed to change password');
@@ -83,7 +75,7 @@ export default function ProfilePage() {
         <p className="text-slate-500 text-sm mt-1">Manage your account details</p>
       </div>
 
-      {/* Avatar + role */}
+      {/* Avatar + role card */}
       <div className="glass-card p-6 mb-5 flex items-center gap-5">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-indigo-500/30">
           {user.displayName?.charAt(0).toUpperCase() ?? 'U'}
@@ -101,20 +93,16 @@ export default function ProfilePage() {
       {/* Edit name */}
       <div className="glass-card p-6 mb-5">
         <h2 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
-          <User size={16} className="text-indigo-400" />
+          <UserIcon size={16} className="text-indigo-400" />
           Display Name
         </h2>
-        <form onSubmit={handleSaveName} className="space-y-4">
-          <Input
-            label="Full Name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Your name"
-            required
-          />
+        <form onSubmit={handleSaveName} className="flex gap-3 items-end">
+          <div className="flex-1">
+            <Input label="" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your full name" required />
+          </div>
           <Button type="submit" loading={nameLoading} className="flex items-center gap-2">
             <Save size={15} />
-            Save Name
+            Save
           </Button>
         </form>
       </div>
@@ -125,46 +113,24 @@ export default function ProfilePage() {
           <Mail size={16} className="text-indigo-400" />
           Email Address
         </h2>
-        <div className="input-glass text-slate-400 cursor-not-allowed opacity-60">
-          {user.email}
-        </div>
+        <div className="input-glass text-slate-400 cursor-not-allowed opacity-60">{user.email}</div>
         <p className="text-xs text-slate-600 mt-2">Email cannot be changed. Contact an admin if needed.</p>
       </div>
 
       {/* Change password */}
       <div className="glass-card p-6">
-        <h2 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-slate-300 mb-1 flex items-center gap-2">
           <Lock size={16} className="text-indigo-400" />
           Change Password
         </h2>
+        <p className="text-xs text-slate-600 mb-4">You will be logged out immediately after changing your password.</p>
         <form onSubmit={handleChangePassword} className="space-y-4">
-          <Input
-            label="Current Password"
-            type="password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            placeholder="••••••••"
-            required
-          />
-          <Input
-            label="New Password"
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Min 8 characters"
-            required
-          />
-          <Input
-            label="Confirm New Password"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Repeat new password"
-            required
-          />
+          <Input label="Current Password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" required />
+          <Input label="New Password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 8 characters" required />
+          <Input label="Confirm New Password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat new password" required />
           <Button type="submit" loading={passLoading} className="flex items-center gap-2">
             <Lock size={15} />
-            Change Password
+            Change Password & Logout
           </Button>
         </form>
       </div>
