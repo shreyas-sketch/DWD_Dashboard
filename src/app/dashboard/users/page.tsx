@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { UserPlus, Trash2, Shield, Users } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Users, Pencil } from 'lucide-react';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, createAuthUserSecondary } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,7 +14,7 @@ import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { RoleBadge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/utils';
-import type { UserRole } from '@/types';
+import type { UserRole, AppUser } from '@/types';
 
 const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'admin', label: 'Admin' },
@@ -22,6 +22,55 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'backend_assist', label: 'Backend Assist' },
   { value: 'calling_assist', label: 'Calling Assist' },
 ];
+
+function EditUserForm({ target, onClose }: { target: AppUser; onClose: () => void }) {
+  const [displayName, setDisplayName] = useState(target.displayName);
+  const [role, setRole] = useState<UserRole>(target.role);
+  const [loading, setLoading] = useState(false);
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!displayName.trim()) return;
+    setLoading(true);
+    try {
+      await import('firebase/firestore').then(({ updateDoc, doc: fDoc }) =>
+        updateDoc(fDoc(db, 'users', target.uid), {
+          displayName: displayName.trim(),
+          role,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+      toast.success('User updated');
+      onClose();
+    } catch (err: unknown) {
+      toast.error((err as { message?: string })?.message ?? 'Error updating user');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-4">
+      <Input
+        label="Full Name"
+        placeholder="John Doe"
+        value={displayName}
+        onChange={(e) => setDisplayName(e.target.value)}
+        required
+      />
+      <Select
+        label="Role"
+        value={role}
+        onChange={(e) => setRole(e.target.value as UserRole)}
+        options={ROLE_OPTIONS}
+      />
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" loading={loading} className="flex-1">Save Changes</Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
 
 function CreateUserForm({ onClose }: { onClose: () => void }) {
   const { user } = useAuth();
@@ -106,6 +155,7 @@ export default function UsersPage() {
   const router = useRouter();
   const { users, loading } = useUsers();
   const [showCreate, setShowCreate] = useState(false);
+  const [editTarget, setEditTarget] = useState<AppUser | null>(null);
 
   // Guard: admin only
   if (!loading && user?.role !== 'admin') {
@@ -170,13 +220,21 @@ export default function UsersPage() {
                     <td><RoleBadge role={u.role} /></td>
                     <td className="text-slate-500 text-sm">{formatDate(u.createdAt)}</td>
                     <td>
-                      <button
-                        onClick={() => handleDelete(u.uid, u.displayName)}
-                        className="p-1.5 text-slate-600 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
-                        disabled={u.uid === user?.uid}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setEditTarget(u)}
+                          className="p-1.5 text-slate-600 hover:text-indigo-400 transition-colors rounded-lg hover:bg-indigo-500/10"
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(u.uid, u.displayName)}
+                          className="p-1.5 text-slate-600 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
+                          disabled={u.uid === user?.uid}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -215,6 +273,10 @@ export default function UsersPage() {
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create New User">
         <CreateUserForm onClose={() => setShowCreate(false)} />
+      </Modal>
+
+      <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Edit User">
+        {editTarget && <EditUserForm target={editTarget} onClose={() => setEditTarget(null)} />}
       </Modal>
     </div>
   );
