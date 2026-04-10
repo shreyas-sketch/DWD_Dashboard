@@ -10,9 +10,10 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  solid?: boolean;
 }
 
-export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+export function Modal({ open, onClose, title, children, size = 'md', solid = false }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -35,6 +36,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       <div
         className={cn(
           'relative w-full glass-card p-6 shadow-2xl',
+          solid && 'modal-solid',
           sizeClass,
         )}
       >

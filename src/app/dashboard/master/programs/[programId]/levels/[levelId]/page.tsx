@@ -82,9 +82,18 @@ export default function LevelDetailPage() {
     });
   }, [programId, levelId]);
 
+  function hasDuplicateBatchNumber(batchNumber: string, excludeId?: string) {
+    const normalized = batchNumber.trim().toLowerCase();
+    return batches.some((b) => b.id !== excludeId && b.batchNumber.trim().toLowerCase() === normalized);
+  }
+
   type BatchFormData = Omit<Batch, 'id' | 'createdAt' | 'updatedAt' | 'createdBy' | 'programId' | 'levelId'>;
 
   async function handleCreate(data: BatchFormData) {
+    if (hasDuplicateBatchNumber(data.batchNumber)) {
+      toast.error('Batch number must be unique in this level');
+      return;
+    }
     await createDocument<Omit<Batch, 'id'>>('batches', {
       ...data,
       programId,
@@ -97,6 +106,10 @@ export default function LevelDetailPage() {
   }
 
   async function handleUpdate(data: BatchFormData) {
+    if (hasDuplicateBatchNumber(data.batchNumber, editing!.id)) {
+      toast.error('Batch number must be unique in this level');
+      return;
+    }
     await updateDocument('batches', editing!.id, data);
     toast.success('Batch updated!');
     setEditing(null);

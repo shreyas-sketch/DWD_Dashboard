@@ -318,7 +318,29 @@ function LeadsTab({
   const { user } = useAuth();
   const [showImport, setShowImport] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  const assistantOptions = assistants.map((a) => ({ value: a.uid, label: a.displayName }));
+
+  function getHandlerName(handlerId: string | null) {
+    if (!handlerId) return null;
+    return assistants.find((a) => a.uid === handlerId)?.displayName ?? null;
+  }
+
+  function getUniqueLeadKey(email: string, phone: string) {
+    const normalizedPhone = phone.trim().toLowerCase();
+    const normalizedEmail = email.trim().toLowerCase();
+    return normalizedPhone || normalizedEmail;
+  }
+
+  function hasDuplicateLead(email: string, phone: string, excludeId?: string) {
+    const key = getUniqueLeadKey(email, phone);
+    if (!key) return false;
+    return leads.some((l) => {
+      if (l.id === excludeId) return false;
+      const leadKey = getUniqueLeadKey(l.email ?? '', l.phone ?? '');
+      return leadKey && leadKey === key;
+    });
+  }
 
   async function handleDistribute() {
     if (assistants.length === 0) { toast.error('No backend assist users found'); return; }
@@ -344,11 +366,22 @@ function LeadsTab({
       complete: async (results) => {
         const rows = results.data as Record<string, string>[];
         const batch = writeBatch(db);
-        rows.forEach((row, idx) => {
+        const existingKeys = new Set(
+          leads
+            .map((l) => getUniqueLeadKey(l.email ?? '', l.phone ?? ''))
+            .filter(Boolean),
+        );
+        let addedCount = 0;
+
+        rows.forEach((row) => {
           const name = row['name'] || row['Name'] || '';
           const email = row['email'] || row['Email'] || '';
           const phone = row['phone'] || row['Phone'] || row['phone_number'] || '';
           if (!name && !email && !phone) return;
+
+          const uniqueKey = getUniqueLeadKey(email, phone);
+          if (uniqueKey && existingKeys.has(uniqueKey)) return;
+
           const ref = doc(collection(db, 'leads'));
           batch.set(ref, {
             batchId, programId, levelId,
@@ -357,25 +390,42 @@ function LeadsTab({
             phone: phone.trim(),
             handlerId: null,
             handlerName: null,
-            serialNumber: leads.length + idx + 1,
+            serialNumber: leads.length + addedCount + 1,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             source: 'import',
           });
+          if (uniqueKey) existingKeys.add(uniqueKey);
+          addedCount += 1;
         });
+
+        if (addedCount === 0) {
+          toast.error('No new leads were imported (duplicates skipped)');
+          return;
+        }
+
         await batch.commit();
-        toast.success(`Imported ${rows.length} leads!`);
+        toast.success(`Imported ${addedCount} leads`);
         setShowImport(false);
       },
       error: () => toast.error('CSV parse error'),
     });
   }
 
-  async function handleAddSingle(name: string, email: string, phone: string) {
+  async function handleAddSingle(name: string, email: string, phone: string, handlerId: string | null) {
+    if (!getUniqueLeadKey(email, phone)) {
+      toast.error('Email or phone is required to keep leads unique');
+      return;
+    }
+    if (hasDuplicateLead(email, phone)) {
+      toast.error('Lead with this email/phone already exists in this batch');
+      return;
+    }
     await createDocument<Omit<Lead, 'id'>>('leads', {
       batchId, programId, levelId,
       name, email: email.toLowerCase(), phone,
-      handlerId: null, handlerName: null,
+      handlerId,
+      handlerName: getHandlerName(handlerId),
       serialNumber: leads.length + 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -390,11 +440,34 @@ function LeadsTab({
     toast.success('Lead deleted');
   }
 
-  async function handleEditLead(name: string, email: string, phone: string) {
+  async function handleEditLead(name: string, email: string, phone: string, handlerId: string | null) {
     if (!editingLead) return;
-    await updateDocument('leads', editingLead.id, { name, email: email.toLowerCase(), phone });
+    if (!getUniqueLeadKey(email, phone)) {
+      toast.error('Email or phone is required to keep leads unique');
+      return;
+    }
+    if (hasDuplicateLead(email, phone, editingLead.id)) {
+      toast.error('Lead with this email/phone already exists in this batch');
+      return;
+    }
+    await updateDocument('leads', editingLead.id, {
+      name,
+      email: email.toLowerCase(),
+      phone,
+      handlerId,
+      handlerName: getHandlerName(handlerId),
+    });
     toast.success('Lead updated');
     setEditingLead(null);
+  }
+
+  async function handleAssignLead(leadId: string, handlerId: string) {
+    const resolvedHandlerId = handlerId || null;
+    await updateDocument('leads', leadId, {
+      handlerId: resolvedHandlerId,
+      handlerName: getHandlerName(resolvedHandlerId),
+    });
+    toast.success('Lead assignment updated');
   }
 
   const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
@@ -449,7 +522,18 @@ function LeadsTab({
                   <td className="text-slate-400">{lead.email}</td>
                   <td className="text-slate-400">{lead.phone}</td>
                   <td>
-                    {lead.handlerName ? (
+                    {canEdit ? (
+                      <select
+                        className="input-glass py-1.5 text-xs cursor-pointer min-w-[150px]"
+                        value={lead.handlerId ?? ''}
+                        onChange={(e) => handleAssignLead(lead.id, e.target.value)}
+                      >
+                        <option value="">Unassigned</option>
+                        {assistantOptions.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : lead.handlerName ? (
                       <Badge variant="info">{lead.handlerName}</Badge>
                     ) : (
                       <Badge variant="warning">Unassigned</Badge>
@@ -485,19 +569,21 @@ function LeadsTab({
         </div>
       )}
 
-      <Modal open={showImport} onClose={() => setShowImport(false)} title="Add Leads" size="md">
+      <Modal open={showImport} onClose={() => setShowImport(false)} title="Add Leads" size="md" solid>
         <LeadImportForm
           onCSV={handleCSV}
           onManual={handleAddSingle}
+          assistants={assistantOptions}
           onClose={() => setShowImport(false)}
         />
       </Modal>
 
-      <Modal open={!!editingLead} onClose={() => setEditingLead(null)} title="Edit Lead">
+      <Modal open={!!editingLead} onClose={() => setEditingLead(null)} title="Edit Lead" solid>
         {editingLead && (
           <LeadEditForm
             initial={editingLead}
             onSave={handleEditLead}
+            assistants={assistantOptions}
             onClose={() => setEditingLead(null)}
           />
         )}
@@ -509,22 +595,25 @@ function LeadsTab({
 function LeadEditForm({
   initial,
   onSave,
+  assistants,
   onClose,
 }: {
   initial: Lead;
-  onSave: (name: string, email: string, phone: string) => Promise<void>;
+  onSave: (name: string, email: string, phone: string, handlerId: string | null) => Promise<void>;
+  assistants: { value: string; label: string }[];
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email);
   const [phone, setPhone] = useState(initial.phone);
+  const [handlerId, setHandlerId] = useState(initial.handlerId ?? '');
   const [loading, setLoading] = useState(false);
 
   async function handle(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
     setLoading(true);
-    try { await onSave(name.trim(), email.trim(), phone.trim()); }
+    try { await onSave(name.trim(), email.trim(), phone.trim(), handlerId || null); }
     finally { setLoading(false); }
   }
 
@@ -533,6 +622,13 @@ function LeadEditForm({
       <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
       <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <Select
+        label="Assign Backend Assist"
+        value={handlerId}
+        onChange={(e) => setHandlerId(e.target.value)}
+        placeholder="Unassigned"
+        options={assistants}
+      />
       <div className="flex gap-3 pt-2">
         <Button type="submit" loading={loading} className="flex-1">Save Changes</Button>
         <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
@@ -542,16 +638,18 @@ function LeadEditForm({
 }
 
 function LeadImportForm({
-  onCSV, onManual, onClose,
+  onCSV, onManual, assistants, onClose,
 }: {
   onCSV: (file: File) => Promise<void>;
-  onManual: (name: string, email: string, phone: string) => Promise<void>;
+  onManual: (name: string, email: string, phone: string, handlerId: string | null) => Promise<void>;
+  assistants: { value: string; label: string }[];
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<'manual' | 'csv'>('manual');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [handlerId, setHandlerId] = useState('');
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -559,7 +657,7 @@ function LeadImportForm({
     e.preventDefault();
     if (!name.trim()) return;
     setLoading(true);
-    try { await onManual(name.trim(), email.trim(), phone.trim()); onClose(); }
+    try { await onManual(name.trim(), email.trim(), phone.trim(), handlerId || null); onClose(); }
     finally { setLoading(false); }
   }
 
@@ -587,6 +685,13 @@ function LeadImportForm({
           <Input label="Full Name" value={name} onChange={(e) => setName(e.target.value)} required />
           <Input label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Select
+            label="Assign Backend Assist"
+            value={handlerId}
+            onChange={(e) => setHandlerId(e.target.value)}
+            placeholder="Unassigned"
+            options={assistants}
+          />
           <div className="flex gap-3 pt-2">
             <Button type="submit" loading={loading} className="flex-1">Add Lead</Button>
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>

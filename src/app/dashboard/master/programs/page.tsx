@@ -56,7 +56,16 @@ export default function ProgramsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Program | null>(null);
 
+  function hasDuplicateProgramName(name: string, excludeId?: string) {
+    const normalized = name.trim().toLowerCase();
+    return programs.some((p) => p.id !== excludeId && p.name.trim().toLowerCase() === normalized);
+  }
+
   async function handleCreate(name: string, mentorName: string) {
+    if (hasDuplicateProgramName(name)) {
+      toast.error('Program name must be unique');
+      return;
+    }
     await createDocument<Omit<Program, 'id'>>('programs', {
       name,
       mentorName,
@@ -68,6 +77,10 @@ export default function ProgramsPage() {
   }
 
   async function handleUpdate(name: string, mentorName: string) {
+    if (hasDuplicateProgramName(name, editing!.id)) {
+      toast.error('Program name must be unique');
+      return;
+    }
     await updateDocument('programs', editing!.id, { name, mentorName });
     toast.success('Program updated!');
     setEditing(null);

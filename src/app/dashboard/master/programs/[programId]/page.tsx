@@ -74,7 +74,16 @@ export default function ProgramDetailPage() {
     });
   }, [programId]);
 
+  function hasDuplicateLevelName(name: string, excludeId?: string) {
+    const normalized = name.trim().toLowerCase();
+    return levels.some((l) => l.id !== excludeId && l.name.trim().toLowerCase() === normalized);
+  }
+
   async function handleCreate(name: string) {
+    if (hasDuplicateLevelName(name)) {
+      toast.error('Level name must be unique in this program');
+      return;
+    }
     await createDocument<Omit<Level, 'id'>>('levels', {
       programId,
       name,
@@ -87,6 +96,10 @@ export default function ProgramDetailPage() {
   }
 
   async function handleUpdate(name: string) {
+    if (hasDuplicateLevelName(name, editing!.id)) {
+      toast.error('Level name must be unique in this program');
+      return;
+    }
     await updateDocument('levels', editing!.id, { name });
     toast.success('Level updated!');
     setEditing(null);

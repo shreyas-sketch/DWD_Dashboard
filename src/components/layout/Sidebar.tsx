@@ -58,6 +58,12 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['admin', 'backend_manager', 'backend_assist', 'calling_assist'],
   },
   {
+    label: 'Manage Batch',
+    href: '/dashboard/manage-batch',
+    icon: <Layers size={18} />,
+    roles: ['admin', 'backend_manager', 'backend_assist'],
+  },
+  {
     label: 'Users',
     href: '/dashboard/users',
     icon: <Users size={18} />,
