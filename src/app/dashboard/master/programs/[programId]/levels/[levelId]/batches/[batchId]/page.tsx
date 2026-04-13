@@ -430,6 +430,7 @@ function LeadsTab({
   const { user } = useAuth();
   const [showImport, setShowImport] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const assistantOptions = assistants.map((a) => ({ value: a.uid, label: a.displayName }));
 
@@ -438,20 +439,33 @@ function LeadsTab({
     return assistants.find((a) => a.uid === handlerId)?.displayName ?? null;
   }
 
-  function getUniqueLeadKey(email: string, phone: string) {
-    const normalizedPhone = phone.trim().toLowerCase();
-    const normalizedEmail = email.trim().toLowerCase();
-    return normalizedPhone || normalizedEmail;
+  function getUniqueLeadKey(email: string) {
+    return email.trim().toLowerCase();
   }
 
-  function hasDuplicateLead(email: string, phone: string, excludeId?: string) {
-    const key = getUniqueLeadKey(email, phone);
+  function hasDuplicateLead(email: string, excludeId?: string) {
+    const key = getUniqueLeadKey(email);
     if (!key) return false;
     return leads.some((l) => {
       if (l.id === excludeId) return false;
-      const leadKey = getUniqueLeadKey(l.email ?? '', l.phone ?? '');
-      return leadKey && leadKey === key;
+      return getUniqueLeadKey(l.email ?? '') === key;
     });
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === leads.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(leads.map((l) => l.id)));
+    }
   }
 
   async function handleDistribute() {
@@ -477,9 +491,7 @@ function LeadsTab({
   ) {
     const batch = writeBatch(db);
     const existingKeys = new Set(
-      leads
-        .map((l) => getUniqueLeadKey(l.email ?? '', l.phone ?? ''))
-        .filter(Boolean),
+      leads.map((l) => getUniqueLeadKey(l.email ?? '')).filter(Boolean),
     );
     let addedCount = 0;
 
@@ -490,7 +502,7 @@ function LeadsTab({
 
       if (!name && !email && !phone) return;
 
-      const uniqueKey = getUniqueLeadKey(email, phone);
+      const uniqueKey = getUniqueLeadKey(email);
       if (uniqueKey && existingKeys.has(uniqueKey)) return;
 
       const ref = doc(collection(db, 'leads'));
@@ -521,12 +533,12 @@ function LeadsTab({
   }
 
   async function handleAddSingle(name: string, email: string, phone: string, handlerId: string | null) {
-    if (!getUniqueLeadKey(email, phone)) {
-      toast.error('Email or phone is required to keep leads unique');
+    if (!email.trim()) {
+      toast.error('Email is required');
       return;
     }
-    if (hasDuplicateLead(email, phone)) {
-      toast.error('Lead with this email/phone already exists in this batch');
+    if (hasDuplicateLead(email)) {
+      toast.error('A lead with this email already exists in this batch');
       return;
     }
     await createDocument<Omit<Lead, 'id'>>('leads', {
@@ -544,18 +556,46 @@ function LeadsTab({
 
   async function handleDeleteLead(id: string) {
     if (!confirm('Delete this lead?')) return;
-    await deleteDocument('leads', id);
+    const remaining = leads
+      .filter((l) => l.id !== id)
+      .sort((a, b) => a.serialNumber - b.serialNumber);
+    const write = writeBatch(db);
+    write.delete(doc(db, 'leads', id));
+    remaining.forEach((lead, i) => {
+      if (lead.serialNumber !== i + 1) {
+        write.update(doc(db, 'leads', lead.id), { serialNumber: i + 1, updatedAt: new Date().toISOString() });
+      }
+    });
+    await write.commit();
     toast.success('Lead deleted');
+  }
+
+  async function handleDeleteSelected() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected lead(s)?`)) return;
+    const remaining = leads
+      .filter((l) => !selectedIds.has(l.id))
+      .sort((a, b) => a.serialNumber - b.serialNumber);
+    const write = writeBatch(db);
+    selectedIds.forEach((id) => write.delete(doc(db, 'leads', id)));
+    remaining.forEach((lead, i) => {
+      if (lead.serialNumber !== i + 1) {
+        write.update(doc(db, 'leads', lead.id), { serialNumber: i + 1, updatedAt: new Date().toISOString() });
+      }
+    });
+    await write.commit();
+    toast.success(`Deleted ${selectedIds.size} lead(s)`);
+    setSelectedIds(new Set());
   }
 
   async function handleEditLead(name: string, email: string, phone: string, handlerId: string | null) {
     if (!editingLead) return;
-    if (!getUniqueLeadKey(email, phone)) {
-      toast.error('Email or phone is required to keep leads unique');
+    if (!email.trim()) {
+      toast.error('Email is required');
       return;
     }
-    if (hasDuplicateLead(email, phone, editingLead.id)) {
-      toast.error('Lead with this email/phone already exists in this batch');
+    if (hasDuplicateLead(email, editingLead.id)) {
+      toast.error('A lead with this email already exists in this batch');
       return;
     }
     await updateDocument('leads', editingLead.id, {
@@ -588,6 +628,11 @@ function LeadsTab({
         </h3>
         {canEdit && (
           <div className="flex gap-2 flex-wrap">
+            {selectedIds.size > 0 && (
+              <Button size="sm" variant="danger" onClick={handleDeleteSelected}>
+                <Trash2 size={14} /> Delete ({selectedIds.size})
+              </Button>
+            )}
             <Button size="sm" variant="secondary" onClick={handleDistribute}>
               <RefreshCw size={14} /> Distribute
             </Button>
@@ -613,6 +658,16 @@ function LeadsTab({
           <table className="table-glass w-full">
             <thead>
               <tr>
+                {canEdit && (
+                  <th className="w-8">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-white/10 bg-slate-950 text-indigo-400 cursor-pointer"
+                      checked={leads.length > 0 && selectedIds.size === leads.length}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                )}
                 <th>Sr.</th>
                 <th>Name</th>
                 <th>Email</th>
@@ -624,7 +679,17 @@ function LeadsTab({
             </thead>
             <tbody>
               {leads.map((lead) => (
-                <tr key={lead.id}>
+                <tr key={lead.id} className={selectedIds.has(lead.id) ? 'bg-indigo-500/5' : ''}>
+                  {canEdit && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-white/10 bg-slate-950 text-indigo-400 cursor-pointer"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={() => toggleSelect(lead.id)}
+                      />
+                    </td>
+                  )}
                   <td className="text-slate-500">{lead.serialNumber}</td>
                   <td className="font-medium text-slate-200">{lead.name}</td>
                   <td className="text-slate-400">{lead.email}</td>
