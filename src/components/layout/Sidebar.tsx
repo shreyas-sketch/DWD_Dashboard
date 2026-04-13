@@ -90,62 +90,20 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        {filteredNav.map((item) => {
-          if (item.children) {
-            const isOpen = expanded.includes(item.label);
-            const isChildActive = item.children.some((c) => pathname.startsWith(c.href));
-            return (
-              <div key={item.label}>
-                <button
-                  onClick={() => toggleExpand(item.label)}
-                  className={cn(
-                    'sidebar-item w-full',
-                    isChildActive && 'text-slate-200',
-                  )}
-                >
-                  <span>{item.icon}</span>
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                </button>
-                {isOpen && (
-                  <div className="ml-7 mt-0.5 space-y-0.5">
-                    {item.children
-                      .filter((c) => c.roles.includes(user.role))
-                      .map((child) => (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          onClick={() => setMobileOpen(false)}
-                          className={cn(
-                            'sidebar-item text-xs',
-                            pathname.startsWith(child.href) && 'active',
-                          )}
-                        >
-                          <Layers size={14} />
-                          {child.label}
-                        </Link>
-                      ))}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href!}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                'sidebar-item',
-                pathname === item.href && 'active',
-              )}
-            >
-              {item.icon}
-              {item.label}
-            </Link>
-          );
-        })}
+        {filteredNav.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href!}
+            onClick={() => setMobileOpen(false)}
+            className={cn(
+              'sidebar-item',
+              pathname === item.href && 'active',
+            )}
+          >
+            {item.icon}
+            {item.label}
+          </Link>
+        ))}
       </nav>
 
       {/* User info */}
