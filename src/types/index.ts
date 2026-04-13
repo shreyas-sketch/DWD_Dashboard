@@ -207,3 +207,18 @@ export const HANDLER_OPTIONS: HandlerStatus[] = [
   'Dropped from call',
   'Not Active',
 ];
+
+// ─── Webhooks ─────────────────────────────────────────────────────────────────
+
+export type WebhookEvent = 'lead_created' | 'batch_created' | 'lead_updated';
+
+export interface WebhookSetting {
+  id: string;
+  name: string;
+  url: string;
+  events: WebhookEvent[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}

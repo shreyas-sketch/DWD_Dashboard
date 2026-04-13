@@ -18,6 +18,7 @@ import {
   UserCog,
   BarChart2,
   FileText,
+  Webhook,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -74,6 +75,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/call-templates',
     icon: <FileText size={18} />,
     roles: ['admin', 'backend_manager'],
+  },
+  {
+    label: 'Webhooks & API',
+    href: '/dashboard/webhooks',
+    icon: <Webhook size={18} />,
+    roles: ['admin'],
   },
 ];
 
