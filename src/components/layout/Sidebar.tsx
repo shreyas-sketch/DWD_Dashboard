@@ -16,6 +16,7 @@ import {
   Sun,
   Moon,
   UserCog,
+  BarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,6 +61,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/users',
     icon: <Users size={18} />,
     roles: ['admin'],
+  },
+  {
+    label: 'Reports',
+    href: '/dashboard/report',
+    icon: <BarChart2 size={18} />,
+    roles: ['admin', 'backend_manager'],
   },
 ];
 

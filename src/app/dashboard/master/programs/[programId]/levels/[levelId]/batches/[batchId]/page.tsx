@@ -1679,15 +1679,34 @@ function ReportTab({ batchId }: { batchId: string }) {
                                 <option value="">—</option>
                                 {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
                               </select>
+                            ) : f.type === 'checkbox' ? (
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-white/10 bg-slate-950 text-indigo-400 cursor-pointer"
+                                checked={rep?.customFieldValues?.[f.id] === 'true'}
+                                onChange={(e) => handleReportChange(lead, session, f.id, e.target.checked ? 'true' : 'false')}
+                              />
+                            ) : f.type === 'date' ? (
+                              <input
+                                type="date"
+                                className="input-glass py-1 text-xs"
+                                value={rep?.customFieldValues?.[f.id] ?? ''}
+                                onChange={(e) => handleReportChange(lead, session, f.id, e.target.value)}
+                              />
                             ) : (
                               <input
+                                type="text"
                                 className="input-glass py-1 text-xs"
                                 value={rep?.customFieldValues?.[f.id] ?? ''}
                                 onChange={(e) => handleReportChange(lead, session, f.id, e.target.value)}
                               />
                             )
                           ) : (
-                            <span>{rep?.customFieldValues?.[f.id] || '—'}</span>
+                            <span>{
+                              f.type === 'checkbox'
+                                ? (rep?.customFieldValues?.[f.id] === 'true' ? '✓' : '—')
+                                : (rep?.customFieldValues?.[f.id] || '—')
+                            }</span>
                           )}
                         </td>
                       ))}
