@@ -9,6 +9,7 @@ import { useLeads } from '@/hooks/useLeads';
 import { useCallSessions } from '@/hooks/useCallSessions';
 import { useCallReports } from '@/hooks/useCallReports';
 import { Select } from '@/components/ui/Select';
+import { useFilter } from '@/contexts/FilterContext';
 import { formatDate, getCallSessionTypeLabel, sortCallSessions } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type { CallSession, Lead, LeadCallReport } from '@/types';
@@ -309,9 +310,14 @@ function EmptyState({ label }: { label: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ReportPage() {
   const { programs } = usePrograms();
-  const [selectedProgramId, setSelectedProgramId] = useState('');
-  const [selectedLevelId, setSelectedLevelId] = useState('');
-  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const {
+    programId: selectedProgramId,
+    levelId: selectedLevelId,
+    batchId: selectedBatchId,
+    handleProgramChange,
+    handleLevelChange,
+    setBatchId: setSelectedBatchId,
+  } = useFilter();
   const [reportType, setReportType] = useState<ReportType>('registration');
 
   const { levels } = useLevels(selectedProgramId || null);
@@ -321,15 +327,7 @@ export default function ReportPage() {
   const { reportMap } = useCallReports(selectedBatchId || null);
 
   // Reset downstream when upstream changes
-  function handleProgramChange(id: string) {
-    setSelectedProgramId(id);
-    setSelectedLevelId('');
-    setSelectedBatchId('');
-  }
-  function handleLevelChange(id: string) {
-    setSelectedLevelId(id);
-    setSelectedBatchId('');
-  }
+  // (handled by FilterContext — use handleProgramChange / handleLevelChange directly)
 
   const selectedLevel = levels.find((l) => l.id === selectedLevelId);
   const selectedBatch = batches.find((b) => b.id === selectedBatchId);

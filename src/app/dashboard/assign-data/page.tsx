@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFilter } from '@/contexts/FilterContext';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useLevels } from '@/hooks/useLevels';
 import { useBatches } from '@/hooks/useBatches';
@@ -250,13 +251,19 @@ function BackendAssistView({ leads, calls, reports, uid }: {
 export default function AssignDataPage() {
   const { user } = useAuth();
 
-  // ── Cascading filters ──
+  // ── Cascading filters (shared across pages via FilterContext) ──
+  const {
+    programId: selectedProgramId,
+    levelId: selectedLevelId,
+    batchId: selectedBatchId,
+    handleProgramChange,
+    handleLevelChange,
+    setBatchId: setSelectedBatchId,
+    clearFilters,
+  } = useFilter();
   const { programs, loading: programsLoading } = usePrograms();
-  const [selectedProgramId, setSelectedProgramId] = useState('');
   const { levels, loading: levelsLoading } = useLevels(selectedProgramId || null);
-  const [selectedLevelId, setSelectedLevelId] = useState('');
   const { batches, loading: batchesLoading } = useBatches(selectedLevelId || null);
-  const [selectedBatchId, setSelectedBatchId] = useState('');
   const [appliedBatchId, setAppliedBatchId] = useState('');
   const [appliedBatch, setAppliedBatch] = useState<Batch | null>(null);
 
@@ -268,17 +275,6 @@ export default function AssignDataPage() {
 
   const filtersLoading = programsLoading || levelsLoading || batchesLoading;
 
-  function handleProgramChange(programId: string) {
-    setSelectedProgramId(programId);
-    setSelectedLevelId('');
-    setSelectedBatchId('');
-  }
-
-  function handleLevelChange(levelId: string) {
-    setSelectedLevelId(levelId);
-    setSelectedBatchId('');
-  }
-
   function handleApply() {
     const batch = batches.find((b) => b.id === selectedBatchId) ?? null;
     setAppliedBatchId(selectedBatchId);
@@ -286,9 +282,7 @@ export default function AssignDataPage() {
   }
 
   function handleClear() {
-    setSelectedProgramId('');
-    setSelectedLevelId('');
-    setSelectedBatchId('');
+    clearFilters();
     setAppliedBatchId('');
     setAppliedBatch(null);
     setLeads([]);

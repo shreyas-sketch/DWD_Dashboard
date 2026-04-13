@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Filter } from 'lucide-react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useLevels } from '@/hooks/useLevels';
 import { useBatches } from '@/hooks/useBatches';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFilter } from '@/contexts/FilterContext';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 
@@ -14,11 +15,16 @@ export default function ManageBatchPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { programs, loading: programsLoading } = usePrograms();
-  const [selectedProgramId, setSelectedProgramId] = useState('');
+  const {
+    programId: selectedProgramId,
+    levelId: selectedLevelId,
+    batchId: selectedBatchId,
+    handleProgramChange: resetBelowProgram,
+    handleLevelChange: resetBelowLevel,
+    setBatchId: setSelectedBatchId,
+  } = useFilter();
   const { levels, loading: levelsLoading } = useLevels(selectedProgramId || null);
-  const [selectedLevelId, setSelectedLevelId] = useState('');
   const { batches, loading: batchesLoading } = useBatches(selectedLevelId || null);
-  const [selectedBatchId, setSelectedBatchId] = useState('');
 
   const selectedProgram = useMemo(
     () => programs.find((p) => p.id === selectedProgramId) ?? null,
@@ -34,17 +40,6 @@ export default function ManageBatchPage() {
     () => batches.find((b) => b.id === selectedBatchId) ?? null,
     [batches, selectedBatchId],
   );
-
-  function resetBelowProgram(programId: string) {
-    setSelectedProgramId(programId);
-    setSelectedLevelId('');
-    setSelectedBatchId('');
-  }
-
-  function resetBelowLevel(levelId: string) {
-    setSelectedLevelId(levelId);
-    setSelectedBatchId('');
-  }
 
   function handleApply() {
     if (!selectedProgram || !selectedLevel || !selectedBatch) return;
