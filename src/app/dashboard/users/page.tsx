@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { UserPlus, Trash2, Shield, Users, Pencil } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Users, Pencil, KeyRound } from 'lucide-react';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db, createAuthUserSecondary } from '@/lib/firebase';
+import { db, auth, createAuthUserSecondary } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUsers } from '@/hooks/useUsers';
 import { Modal } from '@/components/ui/Modal';
@@ -22,6 +22,73 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: 'backend_assist', label: 'Backend Assist' },
   { value: 'calling_assist', label: 'Calling Assist' },
 ];
+
+function ResetPasswordForm({ target, onClose }: { target: AppUser; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) { return; }
+    if (password !== confirm) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    setLoading(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error('Not authenticated');
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ uid: target.uid, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? 'Failed');
+      }
+      toast.success(`Password updated for ${target.displayName}`);
+      onClose();
+    } catch (err: unknown) {
+      toast.error((err as { message?: string })?.message ?? 'Error updating password');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-4">
+      <p className="text-sm text-slate-400">
+        Setting a new password for <span className="text-slate-200 font-medium">{target.displayName}</span> ({target.email})
+      </p>
+      <Input
+        label="New Password (min 8 chars)"
+        type="password"
+        placeholder="••••••••"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        minLength={8}
+        required
+      />
+      <Input
+        label="Confirm Password"
+        type="password"
+        placeholder="••••••••"
+        value={confirm}
+        onChange={(e) => setConfirm(e.target.value)}
+        required
+      />
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" loading={loading} className="flex-1">Update Password</Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
 
 function EditUserForm({ target, onClose }: { target: AppUser; onClose: () => void }) {
   const [displayName, setDisplayName] = useState(target.displayName);
@@ -156,6 +223,7 @@ export default function UsersPage() {
   const { users, loading } = useUsers();
   const [showCreate, setShowCreate] = useState(false);
   const [editTarget, setEditTarget] = useState<AppUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<AppUser | null>(null);
 
   // Guard: admin only
   if (!loading && user?.role !== 'admin') {
@@ -224,13 +292,22 @@ export default function UsersPage() {
                         <button
                           onClick={() => setEditTarget(u)}
                           className="p-1.5 text-slate-600 hover:text-indigo-400 transition-colors rounded-lg hover:bg-indigo-500/10"
+                          title="Edit user"
                         >
                           <Pencil size={14} />
+                        </button>
+                        <button
+                          onClick={() => setResetTarget(u)}
+                          className="p-1.5 text-slate-600 hover:text-amber-400 transition-colors rounded-lg hover:bg-amber-500/10"
+                          title="Reset password"
+                        >
+                          <KeyRound size={14} />
                         </button>
                         <button
                           onClick={() => handleDelete(u.uid, u.displayName)}
                           className="p-1.5 text-slate-600 hover:text-red-400 transition-colors rounded-lg hover:bg-red-500/10"
                           disabled={u.uid === user?.uid}
+                          title="Delete user"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -277,6 +354,10 @@ export default function UsersPage() {
 
       <Modal open={!!editTarget} onClose={() => setEditTarget(null)} title="Edit User">
         {editTarget && <EditUserForm target={editTarget} onClose={() => setEditTarget(null)} />}
+      </Modal>
+
+      <Modal open={!!resetTarget} onClose={() => setResetTarget(null)} title="Reset Password">
+        {resetTarget && <ResetPasswordForm target={resetTarget} onClose={() => setResetTarget(null)} />}
       </Modal>
     </div>
   );

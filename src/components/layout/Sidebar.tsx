@@ -9,8 +9,6 @@ import {
   ClipboardList,
   Users,
   LogOut,
-  ChevronDown,
-  ChevronRight,
   Layers,
   Menu,
   X,
@@ -40,16 +38,10 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['admin', 'backend_manager', 'backend_assist', 'calling_assist'],
   },
   {
-    label: 'Master',
+    label: 'Programs',
+    href: '/dashboard/master/programs',
     icon: <BookOpen size={18} />,
     roles: ['admin', 'backend_manager'],
-    children: [
-      {
-        label: 'Programs',
-        href: '/dashboard/master/programs',
-        roles: ['admin', 'backend_manager'],
-      },
-    ],
   },
   {
     label: 'Assign Data',
@@ -75,14 +67,7 @@ export function Sidebar() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const pathname = usePathname();
-  const [expanded, setExpanded] = useState<string[]>(['Master']);
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  const toggleExpand = (label: string) => {
-    setExpanded((prev) =>
-      prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label],
-    );
-  };
 
   if (!user) return null;
 
