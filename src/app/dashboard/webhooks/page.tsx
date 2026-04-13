@@ -6,11 +6,25 @@ import {
   Webhook, Plus, Trash2, RefreshCw, Copy, CheckCircle2, ArrowUpRight,
   ExternalLink, Info, Zap, AlertTriangle, ToggleLeft, ToggleRight,
 } from 'lucide-react';
-import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { getAuth } from 'firebase/auth';
 import { useAuth } from '@/contexts/AuthContext';
+
+async function getToken(): Promise<string> {
+  const token = await getAuth().currentUser?.getIdToken();
+  if (!token) throw new Error('Not authenticated');
+  return token;
+}
+
+async function apiCall(path: string, options: RequestInit = {}) {
+  const token = await getToken();
+  const res = await fetch(path, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', 'x-firebase-token': token, ...(options.headers ?? {}) },
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error ?? 'Request failed');
+  return json;
+}
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -145,21 +159,21 @@ function WebhookFormModal({
     setLoading(true);
     try {
       if (initial) {
-        await updateDoc(doc(db, 'webhooks', initial.id), {
-          name: name.trim(), url: url.trim(), events, updatedAt: new Date().toISOString(),
+        await apiCall('/api/webhooks/manage', {
+          method: 'PATCH',
+          body: JSON.stringify({ id: initial.id, name: name.trim(), url: url.trim(), events }),
         });
         toast.success('Webhook updated');
       } else {
-        await addDoc(collection(db, 'webhooks'), {
-          name: name.trim(), url: url.trim(), events, active: true,
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          createdBy: user!.uid,
+        await apiCall('/api/webhooks/manage', {
+          method: 'POST',
+          body: JSON.stringify({ name: name.trim(), url: url.trim(), events, createdBy: user!.uid }),
         });
         toast.success('Webhook created');
       }
       onClose();
-    } catch (err) {
-      toast.error('Failed to save webhook');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save webhook');
       console.error(err);
     } finally {
       setLoading(false);
@@ -219,23 +233,41 @@ export default function WebhooksPage() {
   const [expandedExample, setExpandedExample] = useState<Record<number, number>>({});
   const [testing, setTesting] = useState<string | null>(null);
 
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'webhooks'), (snap) => {
-      setWebhooks(snap.docs.map((d) => ({ id: d.id, ...d.data() } as WebhookSetting)));
-    });
-    return unsub;
-  }, []);
+  async function loadWebhooks() {
+    try {
+      const json = await apiCall('/api/webhooks/manage');
+      const sorted = (json.webhooks as WebhookSetting[]).sort(
+        (a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''),
+      );
+      setWebhooks(sorted);
+    } catch (err) {
+      console.error('[webhooks] failed to load', err);
+    }
+  }
+
+  useEffect(() => { loadWebhooks(); }, []);
 
   async function handleToggleActive(hook: WebhookSetting) {
-    await updateDoc(doc(db, 'webhooks', hook.id), {
-      active: !hook.active, updatedAt: new Date().toISOString(),
-    });
+    try {
+      await apiCall('/api/webhooks/manage', {
+        method: 'PATCH',
+        body: JSON.stringify({ id: hook.id, active: !hook.active }),
+      });
+      setWebhooks((prev) => prev.map((h) => h.id === hook.id ? { ...h, active: !hook.active } : h));
+    } catch (err) {
+      toast.error('Failed to update webhook');
+    }
   }
 
   async function handleDelete(hook: WebhookSetting) {
     if (!confirm(`Delete webhook "${hook.name}"?`)) return;
-    await deleteDoc(doc(db, 'webhooks', hook.id));
-    toast.success('Webhook deleted');
+    try {
+      await apiCall(`/api/webhooks/manage?id=${hook.id}`, { method: 'DELETE' });
+      setWebhooks((prev) => prev.filter((h) => h.id !== hook.id));
+      toast.success('Webhook deleted');
+    } catch (err) {
+      toast.error('Failed to delete webhook');
+    }
   }
 
   async function handleTest(hook: WebhookSetting) {
@@ -486,10 +518,10 @@ export default function WebhooksPage() {
 
       {/* Modals */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Outbound Webhook" solid>
-        <WebhookFormModal onClose={() => setShowAdd(false)} />
+        <WebhookFormModal onClose={() => { setShowAdd(false); loadWebhooks(); }} />
       </Modal>
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit Webhook" solid>
-        {editing && <WebhookFormModal initial={editing} onClose={() => setEditing(null)} />}
+        {editing && <WebhookFormModal initial={editing} onClose={() => { setEditing(null); loadWebhooks(); }} />}
       </Modal>
     </div>
   );
