@@ -40,12 +40,12 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       <div className="relative flex min-h-full items-center justify-center p-4 pointer-events-none">
         <div
           className={cn(
-            'pointer-events-auto w-full rounded-2xl border border-white/10 p-6 shadow-2xl',
-            'bg-[#0d1323]',
+            'pointer-events-auto w-full rounded-2xl border border-white/10 shadow-2xl',
+            'bg-[#0d1323] flex flex-col max-h-[90vh]',
             sizeClass,
           )}
         >
-          <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center justify-between px-6 pt-6 pb-5 flex-shrink-0">
             <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
             <button
               onClick={onClose}
@@ -54,7 +54,9 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
               <X size={18} />
             </button>
           </div>
-          {children}
+          <div className="overflow-y-auto px-6 pb-6 flex-1">
+            {children}
+          </div>
         </div>
       </div>
     </div>

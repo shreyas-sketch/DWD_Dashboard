@@ -142,6 +142,7 @@ function CallsTab({
   const [showAdd, setShowAdd] = useState(false);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [templateForDates, setTemplateForDates] = useState<CallTemplate | null>(null);
+  const [editingGroup, setEditingGroup] = useState<CallGroup | null>(null);
   const callGroups = groupCallSessions(calls);
 
   const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
@@ -219,6 +220,45 @@ function CallsTab({
     toast.success('Deleted');
   }
 
+  async function handleEdit(
+    group: CallGroup,
+    newDate: string,
+    newName: string,
+    newSessionTypes: CallSessionType[],
+  ) {
+    const write = writeBatch(db);
+    const now = new Date().toISOString();
+    const trimmedName = newName.trim();
+
+    const existingTypes = group.sessions.map((s) => s.sessionType ?? 'main');
+    const toKeep = group.sessions.filter((s) => newSessionTypes.includes(s.sessionType ?? 'main'));
+    const toRemove = group.sessions.filter((s) => !newSessionTypes.includes(s.sessionType ?? 'main'));
+    const toAdd = newSessionTypes.filter((st) => !existingTypes.includes(st));
+
+    toKeep.forEach((session) => {
+      write.update(doc(db, 'callSessions', session.id), { date: newDate, name: trimmedName, updatedAt: now });
+    });
+    toRemove.forEach((session) => {
+      write.delete(doc(db, 'callSessions', session.id));
+    });
+    toAdd.forEach((sessionType) => {
+      const ref = doc(collection(db, 'callSessions'));
+      write.set(ref, {
+        batchId, programId, levelId,
+        date: newDate,
+        name: trimmedName,
+        order: group.order,
+        sessionType,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user!.uid,
+      });
+    });
+
+    await write.commit();
+    toast.success('Call updated');
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -268,9 +308,22 @@ function CallsTab({
                   </div>
                 </div>
                 {canEdit && (
-                  <button onClick={() => handleDelete(group)} className="text-slate-600 hover:text-red-400 transition-colors">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditingGroup(group)}
+                      className="text-slate-600 hover:text-indigo-400 transition-colors p-1"
+                      title="Edit call"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(group)}
+                      className="text-slate-600 hover:text-red-400 transition-colors p-1"
+                      title="Delete call"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -290,6 +343,24 @@ function CallsTab({
           onPick={(t) => { setShowTemplatePicker(false); setTemplateForDates(t); }}
           onClose={() => setShowTemplatePicker(false)}
         />
+      </Modal>
+
+      {/* Edit existing call */}
+      <Modal
+        open={!!editingGroup}
+        onClose={() => setEditingGroup(null)}
+        title="Edit Call"
+      >
+        {editingGroup && (
+          <EditCallForm
+            group={editingGroup}
+            onSave={async (newDate, newName, newSessionTypes) => {
+              await handleEdit(editingGroup, newDate, newName, newSessionTypes);
+              setEditingGroup(null);
+            }}
+            onClose={() => setEditingGroup(null)}
+          />
+        )}
       </Modal>
 
       {/* Step 2 — Assign dates */}
@@ -536,6 +607,116 @@ function CallForm({
       </div>
       <div className="flex gap-3 pt-2">
         <Button type="submit" loading={loading} className="flex-1">Add Call</Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Edit Call Form ────────────────────────────────────────────────────────────
+function EditCallForm({
+  group,
+  onSave,
+  onClose,
+}: {
+  group: CallGroup;
+  onSave: (newDate: string, newName: string, sessionTypes: CallSessionType[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const existingTypes = group.sessions.map((s) => s.sessionType ?? 'main');
+  const isPreset = (CALL_NAME_PRESETS as readonly string[]).includes(group.name);
+  const [date, setDate] = useState(group.date);
+  const [nameMode, setNameMode] = useState<'preset' | 'other'>(isPreset ? 'preset' : 'other');
+  const [selectedPreset, setSelectedPreset] = useState(isPreset ? group.name : CALL_NAME_PRESETS[0]);
+  const [customName, setCustomName] = useState(isPreset ? '' : group.name);
+  const [sessionTypes, setSessionTypes] = useState<Record<CallSessionType, boolean>>({
+    main: existingTypes.includes('main'),
+    doubt1: existingTypes.includes('doubt1'),
+    doubt2: existingTypes.includes('doubt2'),
+  });
+  const [loading, setLoading] = useState(false);
+
+  const finalName = nameMode === 'preset' ? selectedPreset : customName.trim();
+
+  function toggleSessionType(st: CallSessionType) {
+    setSessionTypes((curr) => ({ ...curr, [st]: !curr[st] }));
+  }
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault();
+    if (!date || !finalName) return;
+    const selected = CALL_SESSION_TYPE_OPTIONS.filter((o) => sessionTypes[o.value]).map((o) => o.value);
+    if (selected.length === 0) { toast.error('Select at least one sub-session'); return; }
+    setLoading(true);
+    try { await onSave(date, finalName, selected); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-4">
+      <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-300">Call Name</p>
+        <div className="grid grid-cols-2 gap-2">
+          {CALL_NAME_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => { setNameMode('preset'); setSelectedPreset(preset); }}
+              className={`text-left px-3 py-2 rounded-xl border text-sm transition-all duration-150 ${
+                nameMode === 'preset' && selectedPreset === preset
+                  ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300'
+                  : 'border-white/8 bg-white/3 text-slate-400 hover:border-white/15 hover:text-slate-200'
+              }`}
+            >
+              {preset}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setNameMode('other')}
+            className={`text-left px-3 py-2 rounded-xl border text-sm transition-all duration-150 ${
+              nameMode === 'other'
+                ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                : 'border-white/8 bg-white/3 text-slate-400 hover:border-white/15 hover:text-slate-200'
+            }`}
+          >
+            Other (custom)
+          </button>
+        </div>
+        {nameMode === 'other' && (
+          <Input
+            label="Custom name"
+            placeholder="e.g. Special Session"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            required
+          />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-300">Subheaders</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {CALL_SESSION_TYPE_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/3 px-3 py-2 text-sm text-slate-300"
+            >
+              <input
+                type="checkbox"
+                checked={sessionTypes[option.value]}
+                onChange={() => toggleSessionType(option.value)}
+                className="h-4 w-4 rounded border-white/10 bg-slate-950 text-indigo-400"
+              />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" loading={loading} className="flex-1">Save Changes</Button>
         <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
       </div>
     </form>
