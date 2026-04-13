@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { UserPlus, Trash2, Shield, Users, Pencil, KeyRound, Download } from 'lucide-react';
+import { UserPlus, Trash2, Users, Pencil, KeyRound, Download } from 'lucide-react';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth, createAuthUserSecondary } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -348,33 +348,6 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-
-      {/* API Key section */}
-      <div className="glass-card p-5 mt-6">
-        <div className="flex items-start gap-3 mb-4">
-          <Shield size={18} className="text-indigo-400 mt-0.5" />
-          <div>
-            <h2 className="font-semibold text-slate-200">API / Webhook Access</h2>
-            <p className="text-slate-500 text-sm mt-0.5">
-              Use the webhook endpoint to push leads from external tools like Pabbly or Zapier.
-            </p>
-          </div>
-        </div>
-        <div className="rounded-xl bg-white/3 border border-white/8 p-3 overflow-x-auto">
-          <code className="text-xs text-indigo-300">
-            POST /api/webhooks/leads
-          </code>
-          <p className="text-xs text-slate-500 mt-2">
-            Required headers: <code className="text-slate-300">x-api-key: YOUR_API_KEY</code>
-          </p>
-          <p className="text-xs text-slate-500 mt-1">
-            Body: <code className="text-slate-300">{'{ "batchId": "...", "name": "...", "email": "...", "phone": "..." }'}</code>
-          </p>
-          <p className="text-xs text-slate-500 mt-2">
-            Set <code className="text-slate-300">WEBHOOK_API_KEY</code> in your environment variables.
-          </p>
-        </div>
-      </div>
 
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create New User">
         <CreateUserForm onClose={() => setShowCreate(false)} />
