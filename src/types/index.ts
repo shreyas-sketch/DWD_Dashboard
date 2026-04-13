@@ -94,6 +94,14 @@ export interface Lead {
   createdAt: string;
   updatedAt: string;
   source: 'manual' | 'import' | 'api';
+  tags?: LeadTag[];
+}
+
+export interface LeadTag {
+  type: 'deposit' | 'won';
+  levelId: string;
+  levelName: string;
+  addedAt: string;
 }
 
 // ─── Call Reports ─────────────────────────────────────────────────────────────
@@ -124,7 +132,8 @@ export type HandlerStatus =
   | "Won't Attend-NR"
   | 'Message Sent'
   | 'Will Attend/Will join'
-  | 'Call Them';
+  | 'Call Them'
+  | "Don't Call Them";
 
 export interface LeadCallReport {
   id: string;
@@ -171,4 +180,5 @@ export const HANDLER_OPTIONS: HandlerStatus[] = [
   'Message Sent',
   'Will Attend/Will join',
   'Call Them',
+  "Don't Call Them",
 ];

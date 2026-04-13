@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import {
   Plus, Upload, Phone, Users, Settings2, Trash2, Pencil,
   ChevronLeft, RefreshCw, Download, ChevronRight, AlertTriangle,
+  TrendingUp, Trophy,
 } from 'lucide-react';
 import { doc, getDoc, collection, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -32,7 +33,7 @@ import {
 } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
-  Program, Level, Batch, CallSession, CallSessionType, CustomField, Lead, LeadCallReport, CustomFieldType,
+  Program, Level, Batch, CallSession, CallSessionType, CustomField, Lead, LeadCallReport, CustomFieldType, LeadTag,
 } from '@/types';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
@@ -51,6 +52,17 @@ const CALL_SESSION_TYPE_OPTIONS: Array<{ value: CallSessionType; label: string }
   { value: 'doubt1', label: 'Doubt Call 1' },
   { value: 'doubt2', label: 'Doubt Call 2' },
 ];
+
+// ─── CSV export helper ────────────────────────────────────────────────────────
+function downloadCSV(csv: string, filename: string) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function groupCallSessions(calls: CallSession[]): CallGroup[] {
   const groups = new Map<string, CallGroup>();
@@ -423,8 +435,8 @@ function CustomFieldForm({
 
 // ─── Leads section ─────────────────────────────────────────────────────────────
 function LeadsTab({
-  batchId, programId, levelId,
-}: { batchId: string; programId: string; levelId: string }) {
+  batchId, programId, levelId, levelName,
+}: { batchId: string; programId: string; levelId: string; levelName: string }) {
   const { leads, loading } = useLeads(batchId);
   const { users: assistants } = useUsers('backend_assist');
   const { user } = useAuth();
@@ -618,7 +630,33 @@ function LeadsTab({
     toast.success('Lead assignment updated');
   }
 
+  async function handleToggleTag(lead: Lead, type: 'deposit' | 'won') {
+    const currentTags: LeadTag[] = lead.tags ?? [];
+    const existingIdx = currentTags.findIndex((t) => t.type === type && t.levelId === levelId);
+    let newTags: LeadTag[];
+    if (existingIdx >= 0) {
+      newTags = currentTags.filter((_, i) => i !== existingIdx);
+    } else {
+      newTags = [...currentTags, { type, levelId, levelName: levelName || levelId, addedAt: new Date().toISOString() }];
+    }
+    await updateDocument<Lead>('leads', lead.id, { tags: newTags });
+  }
+
   const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
+  const canExport = user?.role === 'admin' || user?.role === 'backend_manager';
+
+  function handleExportLeads() {
+    const rows = leads.map((lead) => ({
+      'Sr.': lead.serialNumber,
+      'Name': lead.name,
+      'Email': lead.email,
+      'Phone': lead.phone,
+      'Handler': lead.handlerName ?? '',
+      'Source': lead.source,
+      'Tags': (lead.tags ?? []).map((t) => `${t.type === 'won' ? 'Won' : 'Deposit'} (${t.levelName})`).join('; '),
+    }));
+    downloadCSV(Papa.unparse(rows), `leads-${batchId}.csv`);
+  }
 
   return (
     <div>
@@ -631,6 +669,11 @@ function LeadsTab({
             {selectedIds.size > 0 && (
               <Button size="sm" variant="danger" onClick={handleDeleteSelected}>
                 <Trash2 size={14} /> Delete ({selectedIds.size})
+              </Button>
+            )}
+            {canExport && leads.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={handleExportLeads}>
+                <Download size={14} /> Export CSV
               </Button>
             )}
             <Button size="sm" variant="secondary" onClick={handleDistribute}>
@@ -658,6 +701,7 @@ function LeadsTab({
           <table className="table-glass w-full">
             <thead>
               <tr>
+                <th className="w-16"></th>
                 {canEdit && (
                   <th className="w-8">
                     <input
@@ -680,6 +724,33 @@ function LeadsTab({
             <tbody>
               {leads.map((lead) => (
                 <tr key={lead.id} className={selectedIds.has(lead.id) ? 'bg-indigo-500/5' : ''}>
+                  {/* Tag action icons */}
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <button
+                        title={lead.tags?.some((t) => t.type === 'deposit' && t.levelId === levelId) ? 'Remove Deposit tag' : 'Mark Deposit Paid'}
+                        onClick={() => handleToggleTag(lead, 'deposit')}
+                        className={`p-1.5 rounded-lg transition-all ${
+                          lead.tags?.some((t) => t.type === 'deposit' && t.levelId === levelId)
+                            ? 'text-amber-400 bg-amber-500/15 hover:bg-amber-500/25'
+                            : 'text-slate-600 hover:text-amber-400 hover:bg-amber-500/10'
+                        }`}
+                      >
+                        <TrendingUp size={13} />
+                      </button>
+                      <button
+                        title={lead.tags?.some((t) => t.type === 'won' && t.levelId === levelId) ? 'Remove Won tag' : 'Mark Won'}
+                        onClick={() => handleToggleTag(lead, 'won')}
+                        className={`p-1.5 rounded-lg transition-all ${
+                          lead.tags?.some((t) => t.type === 'won' && t.levelId === levelId)
+                            ? 'text-emerald-400 bg-emerald-500/15 hover:bg-emerald-500/25'
+                            : 'text-slate-600 hover:text-emerald-400 hover:bg-emerald-500/10'
+                        }`}
+                      >
+                        <Trophy size={13} />
+                      </button>
+                    </div>
+                  </td>
                   {canEdit && (
                     <td>
                       <input
@@ -691,7 +762,28 @@ function LeadsTab({
                     </td>
                   )}
                   <td className="text-slate-500">{lead.serialNumber}</td>
-                  <td className="font-medium text-slate-200">{lead.name}</td>
+                  <td>
+                    <div className="flex flex-col gap-1">
+                      <span className="font-medium text-slate-200">{lead.name}</span>
+                      {lead.tags && lead.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {lead.tags.map((tag, i) => (
+                            <span
+                              key={i}
+                              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
+                                tag.type === 'won'
+                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                                  : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                              }`}
+                            >
+                              {tag.type === 'won' ? <Trophy size={9} /> : <TrendingUp size={9} />}
+                              {tag.type === 'won' ? 'Won' : 'Deposit'} · {tag.levelName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   <td className="text-slate-400">{lead.email}</td>
                   <td className="text-slate-400">{lead.phone}</td>
                   <td>
@@ -1308,6 +1400,42 @@ function ReportTab({ batchId }: { batchId: string }) {
     ? callGroups
     : callGroups.filter((group) => group.key === selectedCallGroup);
 
+  const CALLING_ASSIST_RED_FLAGS = new Set<string>([
+    'Out Of Service-NR',
+    'Incoming Inactive-NR',
+    "Won't Attend-NR",
+  ]);
+
+  function handleExportReport() {
+    const rows = leads.map((lead) => {
+      const row: Record<string, string> = {
+        'Sr.': String(lead.serialNumber),
+        'Name': lead.name,
+        'Email': lead.email,
+        'Phone': lead.phone,
+        'Handler': lead.handlerName ?? '',
+        'Tags': (lead.tags ?? []).map((t) => `${t.type === 'won' ? 'Won' : 'Deposit'} (${t.levelName})`).join('; '),
+      };
+      for (const group of displayGroups) {
+        for (const session of group.sessions) {
+          const isDoubt = session.sessionType === 'doubt1' || session.sessionType === 'doubt2';
+          const prefix = `${group.name} | ${formatDate(group.date)} | ${getCallSessionTypeLabel(session.sessionType)}`;
+          const rep = reportMap.get(`${lead.id}_${session.id}`);
+          if (!isDoubt) {
+            row[`${prefix} | Reg. Report`] = rep?.registrationReport ?? '';
+            row[`${prefix} | Calling Assist`] = rep?.callingAssistReport ?? '';
+          }
+          row[`${prefix} | Handler`] = rep?.handlerReport ?? '';
+          for (const f of fields) {
+            row[`${prefix} | ${f.label}`] = rep?.customFieldValues?.[f.id] ?? '';
+          }
+        }
+      }
+      return row;
+    });
+    downloadCSV(Papa.unparse(rows), `report-${batchId}.csv`);
+  }
+
   async function handleReportChange(
     lead: Lead,
     call: CallSession,
@@ -1316,10 +1444,21 @@ function ReportTab({ batchId }: { batchId: string }) {
   ) {
     const key = `${lead.id}_${call.id}`;
     const existing = reportMap.get(key);
-    const patch: Partial<LeadCallReport> =
-      field === 'registrationReport' || field === 'callingAssistReport' || field === 'handlerReport'
-        ? { [field]: value || null }
-        : { customFieldValues: { ...(existing?.customFieldValues ?? {}), [field]: value } };
+    let patch: Partial<LeadCallReport>;
+
+    if (field === 'callingAssistReport') {
+      const autoHandler = value
+        ? CALLING_ASSIST_RED_FLAGS.has(value)
+          ? "Don't Call Them"
+          : 'Call Them'
+        : null;
+      patch = { callingAssistReport: (value as LeadCallReport['callingAssistReport']) || null, handlerReport: autoHandler as LeadCallReport['handlerReport'] };
+    } else if (field === 'registrationReport' || field === 'handlerReport') {
+      patch = { [field]: value || null };
+    } else {
+      patch = { customFieldValues: { ...(existing?.customFieldValues ?? {}), [field]: value } };
+    }
+
     await upsertReport(existing, batchId, lead.id, call.id, patch);
   }
 
@@ -1344,9 +1483,16 @@ function ReportTab({ batchId }: { batchId: string }) {
         <h3 className="font-semibold text-slate-200">Report Table</h3>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           {(user?.role === 'admin' || user?.role === 'backend_manager') && (
-            <Button size="sm" variant="secondary" onClick={() => setShowZoomModal(true)}>
-              <Upload size={14} /> Zoom Registration
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setShowZoomModal(true)}>
+                <Upload size={14} /> Zoom Registration
+              </Button>
+              {leads.length > 0 && (
+                <Button size="sm" variant="secondary" onClick={handleExportReport}>
+                  <Download size={14} /> Export CSV
+                </Button>
+              )}
+            </>
           )}
           <Select
             value={selectedCallGroup}
@@ -1429,45 +1575,97 @@ function ReportTab({ batchId }: { batchId: string }) {
                       return (
                         <React.Fragment key={session.id}>
                       {/* Reg report — main calls only */}
-                      {!isDoubt && (
-                        <td className="border-l border-white/6 min-w-[120px]">
-                          {(user?.role === 'admin' || user?.role === 'backend_manager') ? (
-                            <input
-                              className="input-glass py-1 text-xs"
-                              value={rep?.registrationReport ?? ''}
-                              onChange={(e) => handleReportChange(lead, session, 'registrationReport', e.target.value)}
-                            />
-                          ) : <span>{rep?.registrationReport || '—'}</span>}
-                        </td>
-                      )}
+                      {!isDoubt && (() => {
+                        const regVal = rep?.registrationReport ?? '';
+                        const regColor = regVal === 'Registered'
+                          ? 'text-emerald-400'
+                          : regVal === 'Not Registered'
+                          ? 'text-red-400'
+                          : regVal === 'Not Found'
+                          ? 'text-amber-400'
+                          : 'text-slate-400';
+                        return (
+                          <td className="border-l border-white/6 min-w-[130px]">
+                            {(user?.role === 'admin' || user?.role === 'backend_manager') ? (
+                              <select
+                                className={`input-glass py-1 text-xs cursor-pointer ${regColor}`}
+                                value={regVal}
+                                onChange={(e) => handleReportChange(lead, session, 'registrationReport', e.target.value)}
+                              >
+                                <option value="">—</option>
+                                <option value="Registered" className="text-emerald-400">Registered</option>
+                                <option value="Not Registered" className="text-red-400">Not Registered</option>
+                                <option value="Not Found" className="text-amber-400">Not Found</option>
+                              </select>
+                            ) : (
+                              <span className={regColor}>{regVal || '—'}</span>
+                            )}
+                          </td>
+                        );
+                      })()}
                       {/* Calling assist — main calls only */}
-                      {!isDoubt && (
-                        <td className="min-w-[140px]">
-                          {canCallingAssist ? (
-                            <select
-                              className="input-glass py-1 text-xs cursor-pointer"
-                              value={rep?.callingAssistReport ?? ''}
-                              onChange={(e) => handleReportChange(lead, session, 'callingAssistReport', e.target.value)}
-                            >
-                              <option value="">—</option>
-                              {CALLING_ASSIST_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                            </select>
-                          ) : <span>{rep?.callingAssistReport || '—'}</span>}
-                        </td>
-                      )}
+                      {!isDoubt && (() => {
+                        const caVal = rep?.callingAssistReport ?? '';
+                        const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
+                        const caColor = isRedFlag ? 'text-red-400' : caVal ? 'text-slate-200' : 'text-slate-400';
+                        return (
+                          <td className="min-w-[160px]">
+                            {canCallingAssist ? (
+                              <select
+                                className={`input-glass py-1 text-xs cursor-pointer ${caColor}`}
+                                value={caVal}
+                                onChange={(e) => handleReportChange(lead, session, 'callingAssistReport', e.target.value)}
+                              >
+                                <option value="">—</option>
+                                {CALLING_ASSIST_OPTIONS.map((o) => (
+                                  <option
+                                    key={o}
+                                    value={o}
+                                    className={CALLING_ASSIST_RED_FLAGS.has(o) ? 'text-red-400' : ''}
+                                  >
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className={caColor}>{caVal || '—'}</span>
+                            )}
+                          </td>
+                        );
+                      })()}
                       {/* Handler */}
-                      <td className={isDoubt ? 'border-l border-white/6 min-w-[140px]' : 'min-w-[140px]'}>
-                        {canHandler ? (
-                          <select
-                            className="input-glass py-1 text-xs cursor-pointer"
-                            value={rep?.handlerReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, session, 'handlerReport', e.target.value)}
-                          >
-                            <option value="">—</option>
-                            {HANDLER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                        ) : <span>{rep?.handlerReport || '—'}</span>}
-                      </td>
+                      {(() => {
+                        const hVal = rep?.handlerReport ?? '';
+                        const hColor = hVal === "Don't Call Them"
+                          ? 'text-red-400'
+                          : hVal === 'Call Them'
+                          ? 'text-sky-400'
+                          : 'text-slate-400';
+                        return (
+                          <td className={isDoubt ? 'border-l border-white/6 min-w-[150px]' : 'min-w-[150px]'}>
+                            {canHandler ? (
+                              <select
+                                className={`input-glass py-1 text-xs cursor-pointer ${hColor}`}
+                                value={hVal}
+                                onChange={(e) => handleReportChange(lead, session, 'handlerReport', e.target.value)}
+                              >
+                                <option value="">—</option>
+                                {HANDLER_OPTIONS.map((o) => (
+                                  <option
+                                    key={o}
+                                    value={o}
+                                    className={o === "Don't Call Them" ? 'text-red-400' : o === 'Call Them' ? 'text-sky-400' : ''}
+                                  >
+                                    {o}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className={hColor}>{hVal || '—'}</span>
+                            )}
+                          </td>
+                        );
+                      })()}
                       {/* Custom fields */}
                       {fields.map((f) => (
                         <td key={f.id} className="min-w-[120px]">
@@ -1635,7 +1833,7 @@ export default function BatchDetailPage() {
       </div>
 
       <div className="glass-card p-5">
-        {tab === 'leads' && <LeadsTab batchId={batchId} programId={programId} levelId={levelId} />}
+        {tab === 'leads' && <LeadsTab batchId={batchId} programId={programId} levelId={levelId} levelName={level?.name ?? ''} />}
         {tab === 'calls' && <CallsTab batchId={batchId} programId={programId} levelId={levelId} />}
         {tab === 'fields' && <FieldsTab batchId={batchId} />}
         {tab === 'report' && <ReportTab batchId={batchId} />}

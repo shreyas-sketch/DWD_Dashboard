@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { UserPlus, Trash2, Shield, Users, Pencil, KeyRound } from 'lucide-react';
+import { UserPlus, Trash2, Shield, Users, Pencil, KeyRound, Download } from 'lucide-react';
 import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth, createAuthUserSecondary } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -238,6 +238,27 @@ export default function UsersPage() {
     toast.success(`User deleted`);
   }
 
+  function handleExportUsers() {
+    const rows = users.map((u) => ({
+      'Name': u.displayName,
+      'Email': u.email,
+      'Role': u.role,
+      'Created At': formatDate(u.createdAt),
+    }));
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(','),
+      ...rows.map((r) => headers.map((h) => `"${String(r[h as keyof typeof r]).replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'users.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -245,9 +266,16 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold gradient-text">User Management</h1>
           <p className="text-slate-500 text-sm mt-1">Create and manage system users</p>
         </div>
-        <Button onClick={() => setShowCreate(true)}>
-          <UserPlus size={16} /> Add User
-        </Button>
+        <div className="flex items-center gap-2">
+          {users.length > 0 && (
+            <Button variant="secondary" onClick={handleExportUsers}>
+              <Download size={16} /> Export CSV
+            </Button>
+          )}
+          <Button onClick={() => setShowCreate(true)}>
+            <UserPlus size={16} /> Add User
+          </Button>
+        </div>
       </div>
 
       {loading ? (
