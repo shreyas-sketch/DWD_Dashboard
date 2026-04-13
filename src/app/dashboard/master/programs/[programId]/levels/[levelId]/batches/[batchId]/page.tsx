@@ -1040,6 +1040,15 @@ function ReportTab({ batchId }: { batchId: string }) {
   const canCallingAssist = user?.role === 'calling_assist' || user?.role === 'admin' || user?.role === 'backend_manager';
   const canHandler = user?.role === 'backend_assist' || user?.role === 'admin' || user?.role === 'backend_manager';
 
+  const callingAssistLabel = user?.role === 'calling_assist'
+    ? `${user.displayName} Report`
+    : 'Calling Assist Report';
+
+  function sessionColCount(session: CallSession) {
+    const isDoubt = session.sessionType === 'doubt1' || session.sessionType === 'doubt2';
+    return isDoubt ? 1 + fields.length : 3 + fields.length;
+  }
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -1065,14 +1074,14 @@ function ReportTab({ batchId }: { batchId: string }) {
               <th rowSpan={4}>Phone</th>
               <th rowSpan={4}>Handler</th>
               {displayGroups.map((group) => (
-                <th key={`${group.key}_name`} colSpan={group.sessions.length * (3 + fields.length)} className="text-center border-l border-white/10">
+                <th key={`${group.key}_name`} colSpan={group.sessions.reduce((sum, s) => sum + sessionColCount(s), 0)} className="text-center border-l border-white/10">
                   {group.name}
                 </th>
               ))}
             </tr>
             <tr>
               {displayGroups.map((group) => (
-                <th key={`${group.key}_date`} colSpan={group.sessions.length * (3 + fields.length)} className="text-center border-l border-white/10 text-slate-400">
+                <th key={`${group.key}_date`} colSpan={group.sessions.reduce((sum, s) => sum + sessionColCount(s), 0)} className="text-center border-l border-white/10 text-slate-400">
                   {formatDate(group.date)}
                 </th>
               ))}
@@ -1081,7 +1090,7 @@ function ReportTab({ batchId }: { batchId: string }) {
               {displayGroups.map((group) => (
                 <React.Fragment key={`${group.key}_sessions`}>
                   {group.sessions.map((session) => (
-                    <th key={`${session.id}_session`} colSpan={3 + fields.length} className="border-l border-white/10 text-center text-indigo-300/80">
+                    <th key={`${session.id}_session`} colSpan={sessionColCount(session)} className="border-l border-white/10 text-center text-indigo-300/80">
                       {getCallSessionTypeLabel(session.sessionType)}
                     </th>
                   ))}
@@ -1091,16 +1100,19 @@ function ReportTab({ batchId }: { batchId: string }) {
             <tr>
               {displayGroups.map((group) => (
                 <React.Fragment key={`${group.key}_fields`}>
-                  {group.sessions.map((session) => (
-                    <React.Fragment key={`${session.id}_columns`}>
-                      <th className="border-l border-white/10 text-indigo-300/80">Reg. Report</th>
-                      <th className="text-cyan-300/80">Calling Report</th>
-                      <th className="text-purple-300/80">Handler Report</th>
-                      {fields.map((field) => (
-                        <th key={`${session.id}_${field.id}`} className="text-amber-300/80">{field.label}</th>
-                      ))}
-                    </React.Fragment>
-                  ))}
+                  {group.sessions.map((session) => {
+                    const isDoubt = session.sessionType === 'doubt1' || session.sessionType === 'doubt2';
+                    return (
+                      <React.Fragment key={`${session.id}_columns`}>
+                        {!isDoubt && <th className="border-l border-white/10 text-indigo-300/80">Reg. Report</th>}
+                        {!isDoubt && <th className="text-cyan-300/80">{callingAssistLabel}</th>}
+                        <th className={isDoubt ? 'border-l border-white/10 text-purple-300/80' : 'text-purple-300/80'}>Handler Report</th>
+                        {fields.map((field) => (
+                          <th key={`${session.id}_${field.id}`} className="text-amber-300/80">{field.label}</th>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </React.Fragment>
               ))}
             </tr>
@@ -1117,33 +1129,38 @@ function ReportTab({ batchId }: { batchId: string }) {
                   <React.Fragment key={group.key}>
                     {group.sessions.map((session) => {
                       const rep = reportMap.get(`${lead.id}_${session.id}`);
+                      const isDoubt = session.sessionType === 'doubt1' || session.sessionType === 'doubt2';
                       return (
                         <React.Fragment key={session.id}>
-                      {/* Reg report */}
-                      <td className="border-l border-white/6 min-w-[120px]">
-                        {(user?.role === 'admin' || user?.role === 'backend_manager') ? (
-                          <input
-                            className="input-glass py-1 text-xs"
-                            value={rep?.registrationReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, session, 'registrationReport', e.target.value)}
-                          />
-                        ) : <span>{rep?.registrationReport || '—'}</span>}
-                      </td>
-                      {/* Calling assist */}
-                      <td className="min-w-[140px]">
-                        {canCallingAssist ? (
-                          <select
-                            className="input-glass py-1 text-xs cursor-pointer"
-                            value={rep?.callingAssistReport ?? ''}
-                            onChange={(e) => handleReportChange(lead, session, 'callingAssistReport', e.target.value)}
-                          >
-                            <option value="">—</option>
-                            {CALLING_ASSIST_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                        ) : <span>{rep?.callingAssistReport || '—'}</span>}
-                      </td>
+                      {/* Reg report — main calls only */}
+                      {!isDoubt && (
+                        <td className="border-l border-white/6 min-w-[120px]">
+                          {(user?.role === 'admin' || user?.role === 'backend_manager') ? (
+                            <input
+                              className="input-glass py-1 text-xs"
+                              value={rep?.registrationReport ?? ''}
+                              onChange={(e) => handleReportChange(lead, session, 'registrationReport', e.target.value)}
+                            />
+                          ) : <span>{rep?.registrationReport || '—'}</span>}
+                        </td>
+                      )}
+                      {/* Calling assist — main calls only */}
+                      {!isDoubt && (
+                        <td className="min-w-[140px]">
+                          {canCallingAssist ? (
+                            <select
+                              className="input-glass py-1 text-xs cursor-pointer"
+                              value={rep?.callingAssistReport ?? ''}
+                              onChange={(e) => handleReportChange(lead, session, 'callingAssistReport', e.target.value)}
+                            >
+                              <option value="">—</option>
+                              {CALLING_ASSIST_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                            </select>
+                          ) : <span>{rep?.callingAssistReport || '—'}</span>}
+                        </td>
+                      )}
                       {/* Handler */}
-                      <td className="min-w-[140px]">
+                      <td className={isDoubt ? 'border-l border-white/6 min-w-[140px]' : 'min-w-[140px]'}>
                         {canHandler ? (
                           <select
                             className="input-glass py-1 text-xs cursor-pointer"
