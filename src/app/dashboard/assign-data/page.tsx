@@ -13,7 +13,6 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { useLevels } from '@/hooks/useLevels';
 import { useBatches } from '@/hooks/useBatches';
 import { updateDocument, createDocument } from '@/lib/firestore';
-import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { formatCallSessionLabel, sortCallSessions } from '@/lib/utils';
@@ -22,6 +21,12 @@ import type {
   Lead, CallSession, Batch, LeadCallReport,
   CallingAssistStatus, HandlerStatus,
 } from '@/types';
+
+const CALLING_ASSIST_RED_FLAGS = new Set([
+  'Out Of Service-NR',
+  'Incoming Inactive-NR',
+  "Won't Attend-NR",
+]);
 
 // ─── Helper: upsert call report ────────────────────────────────────────────────
 async function upsertReport(
@@ -74,9 +79,15 @@ function CallingAssistView({ leads, calls, reports, uid }: {
     if (!activeCall) return;
     const key = `${lead.id}_${activeCall.id}`;
     const existing = reportMap.get(key);
+    const autoHandler: HandlerStatus | null = value
+      ? CALLING_ASSIST_RED_FLAGS.has(value)
+        ? "Don't Call Them"
+        : 'Call Them'
+      : null;
     await upsertReport(existing, lead.batchId, lead.id, activeCall.id, {
       callingAssistReport: value || null,
       callingAssistId: uid,
+      handlerReport: autoHandler,
     }, uid);
     toast.success('Saved');
   }
@@ -119,6 +130,8 @@ function CallingAssistView({ leads, calls, reports, uid }: {
             {filtered.map((lead) => {
               const key = `${lead.id}_${selectedCall}`;
               const rep = reportMap.get(key);
+              const caVal = rep?.callingAssistReport ?? '';
+              const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
               return (
                 <tr key={lead.id}>
                   <td className="text-slate-500">{lead.serialNumber}</td>
@@ -126,8 +139,10 @@ function CallingAssistView({ leads, calls, reports, uid }: {
                   <td className="text-slate-400">{lead.phone}</td>
                   <td className="min-w-[180px]">
                     <select
-                      className="input-glass py-1.5 text-sm cursor-pointer"
-                      value={rep?.callingAssistReport ?? ''}
+                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${
+                        isRedFlag ? 'text-red-400' : caVal ? 'text-emerald-400' : ''
+                      }`}
+                      value={caVal}
                       onChange={(e) => handleChange(lead, e.target.value as CallingAssistStatus | '')}
                       disabled={!selectedCall}
                     >
@@ -213,6 +228,9 @@ function BackendAssistView({ leads, calls, reports, uid }: {
             {filtered.map((lead) => {
               const key = `${lead.id}_${selectedCall}`;
               const rep = reportMap.get(key);
+              const caVal = rep?.callingAssistReport ?? '';
+              const handlerVal = rep?.handlerReport ?? '';
+              const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
               return (
                 <tr key={lead.id}>
                   <td className="text-slate-500">{lead.serialNumber}</td>
@@ -220,14 +238,22 @@ function BackendAssistView({ leads, calls, reports, uid }: {
                   <td className="text-slate-400 text-xs">{lead.email}</td>
                   <td className="text-slate-400">{lead.phone}</td>
                   <td>
-                    {rep?.callingAssistReport ? (
-                      <Badge variant="info">{rep.callingAssistReport}</Badge>
-                    ) : '—'}
+                    {caVal ? (
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                        isRedFlag
+                          ? 'text-red-400 bg-red-500/10 border-red-500/20'
+                          : 'text-sky-400 bg-sky-500/10 border-sky-500/20'
+                      }`}>{caVal}</span>
+                    ) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="min-w-[180px]">
                     <select
-                      className="input-glass py-1.5 text-sm cursor-pointer"
-                      value={rep?.handlerReport ?? ''}
+                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${
+                        handlerVal === "Don't Call Them" ? 'text-red-400' :
+                        handlerVal === 'Call Them' ? 'text-sky-400' :
+                        handlerVal ? 'text-emerald-400' : ''
+                      }`}
+                      value={handlerVal}
                       onChange={(e) => handleChange(lead, e.target.value as HandlerStatus | '')}
                       disabled={!selectedCall}
                     >
