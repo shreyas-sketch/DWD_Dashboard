@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +16,12 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -22,7 +29,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const sizeClass = {
     sm: 'max-w-sm',
@@ -31,7 +38,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
     xl: 'max-w-4xl',
   }[size];
 
-  return (
+  return createPortal(
     /* Scrollable overlay — handles taller-than-viewport modals */
     <div className="fixed inset-0 z-[60] overflow-y-auto">
       {/* Backdrop — fixed so it never scrolls away */}
@@ -59,6 +66,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
