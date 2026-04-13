@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Plus, Layers, Pencil, Trash2, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Plus, Layers, Pencil, Trash2, ChevronRight, ChevronLeft, Copy } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useLevels } from '@/hooks/useLevels';
@@ -167,6 +167,13 @@ export default function ProgramDetailPage() {
                 >
                   Batches <ChevronRight size={14} />
                 </Link>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(lvl.id); toast.success('Level ID copied!'); }}
+                  title="Copy Level ID"
+                  className="p-1.5 text-slate-500 hover:text-slate-200 rounded-lg hover:bg-white/5 transition-colors"
+                >
+                  <Copy size={14} />
+                </button>
                 {canEdit && (
                   <>
                     <button onClick={() => setEditing(lvl)} className="p-1.5 text-slate-500 hover:text-slate-200 rounded-lg hover:bg-white/5 transition-colors">

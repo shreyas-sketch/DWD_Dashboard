@@ -1,31 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { initializeApp, getApps, cert, getApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getAdminDb, verifyUserToken } from '@/lib/firebase-admin';
 import type { WebhookEvent } from '@/types';
 
-// ─── Firebase Admin init (client-side token auth) ─────────────────────────────
-function getAdminDb() {
-  if (!getApps().length) {
-    initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_ADMIN_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
-  }
-  return getFirestore(getApp());
-}
-
 // ─── POST /api/webhooks/fire ──────────────────────────────────────────────────
-// Internal endpoint — called by the dashboard frontend to fire outbound webhooks
-// when a dashboard action happens (lead created, batch created, etc.).
-//
+// Internal endpoint — called by the dashboard frontend to fire outbound webhooks.
 // Body: { event: WebhookEvent, data: object }
-// Auth: Firebase ID token in Authorization: Bearer <token>
+// Auth: Firebase ID token in x-firebase-token or Authorization: Bearer <token>
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
+  const user = await verifyUserToken(req, 'admin');
+  if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -39,15 +22,6 @@ export async function POST(req: NextRequest) {
   const { event, data } = body;
   if (!event || !data) {
     return NextResponse.json({ error: 'event and data are required' }, { status: 400 });
-  }
-
-  // Verify the user is authenticated (Firebase ID token)
-  try {
-    const { getAuth } = await import('firebase-admin/auth');
-    const token = authHeader.slice(7);
-    await getAuth(getApp()).verifyIdToken(token);
-  } catch {
-    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
   }
 
   try {

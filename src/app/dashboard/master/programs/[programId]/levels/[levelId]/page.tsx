@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Plus, Package, Pencil, Trash2, ChevronRight, ChevronLeft, Calendar } from 'lucide-react';
+import { Plus, Package, Pencil, Trash2, ChevronRight, ChevronLeft, Calendar, Copy } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useBatches } from '@/hooks/useBatches';
@@ -248,6 +248,13 @@ export default function LevelDetailPage() {
                   >
                     Manage Batch <ChevronRight size={14} />
                   </Link>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(b.id); toast.success('Batch ID copied!'); }}
+                    title="Copy Batch ID"
+                    className="p-1.5 text-slate-500 hover:text-slate-200 rounded-lg hover:bg-white/5 transition-colors"
+                  >
+                    <Copy size={14} />
+                  </button>
                   {canEdit && (
                     <>
                       <button onClick={() => setEditing(b)} className="p-1.5 text-slate-500 hover:text-slate-200 rounded-lg hover:bg-white/5 transition-colors">

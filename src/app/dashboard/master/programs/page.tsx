@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
-import { Plus, BookOpen, Pencil, Trash2, ChevronRight, User } from 'lucide-react';
+import { Plus, BookOpen, Pencil, Trash2, ChevronRight, User, Copy } from 'lucide-react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useAuth } from '@/contexts/AuthContext';
 import { createDocument, updateDocument, deleteProgramCascade } from '@/lib/firestore';
@@ -146,6 +146,13 @@ export default function ProgramsPage() {
                 >
                   View Levels <ChevronRight size={14} />
                 </Link>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(p.id); toast.success('Program ID copied!'); }}
+                  title="Copy Program ID"
+                  className="p-1.5 text-slate-500 hover:text-slate-200 transition-colors rounded-lg hover:bg-white/5"
+                >
+                  <Copy size={14} />
+                </button>
                 {user?.role === 'admin' && (
                   <>
                     <button

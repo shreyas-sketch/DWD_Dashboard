@@ -8,7 +8,10 @@ import { getAdminDb, validateApiKey, fireOutboundWebhooks } from '@/lib/firebase
 //                         — if batchNumber is omitted the most-recently-created batch is used
 export async function POST(req: NextRequest) {
   if (!validateApiKey(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json(
+      { error: 'Unauthorized — check your x-api-key header matches the WEBHOOK_API_KEY env var on the server' },
+      { status: 401 },
+    );
   }
 
   let body: Record<string, unknown>;
