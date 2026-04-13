@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
   Plus, Upload, Phone, Users, Settings2, Trash2, Pencil,
-  ChevronLeft, RefreshCw, Download, ChevronRight,
+  ChevronLeft, RefreshCw, Download, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import { doc, getDoc, collection, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -999,6 +999,293 @@ function LeadImportForm({
   );
 }
 
+// ─── Zoom Registration Upload ─────────────────────────────────────────────────
+function ZoomRegistrationForm({
+  callGroups,
+  leads,
+  batchId,
+  reportMap,
+  onComplete,
+  onClose,
+}: {
+  callGroups: CallGroup[];
+  leads: Lead[];
+  batchId: string;
+  reportMap: Map<string, LeadCallReport>;
+  onComplete: (unmatched: Array<{ name: string; email: string; phone: string }>) => void;
+  onClose: () => void;
+}) {
+  const mainSessions = callGroups.flatMap((g) =>
+    g.sessions
+      .filter((s) => s.sessionType === 'main' || !s.sessionType)
+      .map((s) => ({ ...s, groupName: g.name, groupDate: g.date })),
+  );
+
+  const [step, setStep] = useState<'upload' | 'mapping' | 'preview'>('upload');
+  const [selectedSessionId, setSelectedSessionId] = useState(mainSessions[0]?.id ?? '');
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [mapping, setMapping] = useState({ name: '', email: '', phone: '' });
+  const [previewData, setPreviewData] = useState<{
+    matched: Lead[];
+    unmatched: Array<{ name: string; email: string; phone: string }>;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function autoDetect(headers: string[]) {
+    const find = (patterns: RegExp[]) => headers.find((h) => patterns.some((p) => p.test(h.trim()))) ?? '';
+    return {
+      name: find([/^(first.?name|name|full.?name|attendee.?name)$/i]),
+      email: find([/^(email|e.?mail|email.?address|user.?email)$/i]),
+      phone: find([/^(phone|phone.?number|mobile|mobile.?number|contact)$/i]),
+    };
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as Record<string, string>[];
+        const headers = (results.meta.fields ?? []) as string[];
+        setCsvRows(rows);
+        setCsvHeaders(headers);
+        setMapping(autoDetect(headers));
+        setStep('mapping');
+        setLoading(false);
+      },
+      error: () => {
+        toast.error('Could not parse file');
+        setLoading(false);
+      },
+    });
+    e.target.value = '';
+  }
+
+  function computeMatches() {
+    const leadByEmail = new Map<string, Lead>();
+    const leadByPhone = new Map<string, Lead>();
+    leads.forEach((lead) => {
+      if (lead.email) leadByEmail.set(lead.email.trim().toLowerCase(), lead);
+      if (lead.phone) {
+        const normalized = lead.phone.replace(/\D/g, '');
+        if (normalized) leadByPhone.set(normalized, lead);
+      }
+    });
+
+    const matched: Lead[] = [];
+    const matchedIds = new Set<string>();
+    const unmatched: Array<{ name: string; email: string; phone: string }> = [];
+
+    for (const row of csvRows) {
+      const name = (mapping.name ? (row[mapping.name] ?? '') : '').trim();
+      const email = (mapping.email ? (row[mapping.email] ?? '') : '').trim();
+      const phone = (mapping.phone ? (row[mapping.phone] ?? '') : '').trim();
+
+      const normalizedEmail = email.toLowerCase();
+      const normalizedPhone = phone.replace(/\D/g, '');
+
+      const lead =
+        (normalizedEmail && leadByEmail.get(normalizedEmail)) ||
+        (normalizedPhone && leadByPhone.get(normalizedPhone)) ||
+        null;
+
+      if (lead) {
+        if (!matchedIds.has(lead.id)) {
+          matched.push(lead);
+          matchedIds.add(lead.id);
+        }
+      } else {
+        unmatched.push({ name, email, phone });
+      }
+    }
+
+    return { matched, unmatched };
+  }
+
+  function handlePreview() {
+    if (!selectedSessionId) { toast.error('Select a call session'); return; }
+    if (!mapping.email && !mapping.phone) {
+      toast.error('Map at least an email or phone column to match leads');
+      return;
+    }
+    const result = computeMatches();
+    setPreviewData(result);
+    setStep('preview');
+  }
+
+  async function handleConfirm() {
+    if (!previewData || !selectedSessionId) return;
+    setLoading(true);
+    try {
+      const wb = writeBatch(db);
+      const now = new Date().toISOString();
+
+      for (const lead of previewData.matched) {
+        const key = `${lead.id}_${selectedSessionId}`;
+        const existing = reportMap.get(key);
+
+        if (existing) {
+          wb.update(doc(db, 'callReports', existing.id), { registrationReport: 'Registered', updatedAt: now });
+        } else {
+          const ref = doc(collection(db, 'callReports'));
+          wb.set(ref, {
+            batchId,
+            leadId: lead.id,
+            callSessionId: selectedSessionId,
+            registrationReport: 'Registered',
+            callingAssistReport: null,
+            callingAssistId: null,
+            handlerReport: null,
+            handlerId: null,
+            customFieldValues: {},
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+
+      await wb.commit();
+      toast.success(`Marked ${previewData.matched.length} lead(s) as Registered`);
+      onComplete(previewData.unmatched);
+    } catch (err) {
+      toast.error('Failed to update registrations');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (mainSessions.length === 0) {
+    return (
+      <div className="text-center py-6 space-y-3">
+        <p className="text-slate-400 text-sm">No main call sessions found. Add a main call session first.</p>
+        <Button variant="secondary" onClick={onClose}>Close</Button>
+      </div>
+    );
+  }
+
+  // ── Step: upload ────────────────────────────────────────────────────────────
+  if (step === 'upload') {
+    return (
+      <div className="space-y-5">
+        <Select
+          label="Call Session"
+          value={selectedSessionId}
+          onChange={(e) => setSelectedSessionId(e.target.value)}
+          options={mainSessions.map((s) => ({
+            value: s.id,
+            label: `${formatDate(s.groupDate)} — ${s.groupName}`,
+          }))}
+        />
+        <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-sm text-slate-400">
+          Upload the Zoom registration CSV for this call. Registrants are matched to leads by
+          {' '}<span className="text-indigo-300 font-medium">email</span> or{' '}
+          <span className="text-indigo-300 font-medium">phone number</span> and marked as{' '}
+          <span className="text-emerald-400 font-medium">Registered</span>.
+        </div>
+        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
+        <Button className="w-full" onClick={() => fileRef.current?.click()} loading={loading}>
+          <Upload size={16} /> Choose CSV File
+        </Button>
+        <Button variant="secondary" className="w-full" onClick={onClose}>Cancel</Button>
+      </div>
+    );
+  }
+
+  // ── Step: mapping ───────────────────────────────────────────────────────────
+  if (step === 'mapping') {
+    const mappingOptions = [{ value: '', label: '— Not mapped —' }, ...csvHeaders.map((h) => ({ value: h, label: h }))];
+    return (
+      <div className="space-y-4">
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-slate-300">
+          <span className="text-emerald-400 font-semibold">{csvRows.length} rows</span> detected.
+          {' '}Map the CSV columns to match against leads.
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Select
+            label="Name column"
+            value={mapping.name}
+            onChange={(e) => setMapping((prev) => ({ ...prev, name: e.target.value }))}
+            options={mappingOptions}
+          />
+          <Select
+            label="Email column"
+            value={mapping.email}
+            onChange={(e) => setMapping((prev) => ({ ...prev, email: e.target.value }))}
+            options={mappingOptions}
+          />
+          <Select
+            label="Phone column"
+            value={mapping.phone}
+            onChange={(e) => setMapping((prev) => ({ ...prev, phone: e.target.value }))}
+            options={mappingOptions}
+          />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <Button className="flex-1" onClick={handlePreview}>Preview Matches</Button>
+          <Button variant="secondary" onClick={() => { setStep('upload'); setCsvRows([]); setCsvHeaders([]); }}>Back</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step: preview ───────────────────────────────────────────────────────────
+  if (step === 'preview' && previewData) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-center">
+            <p className="text-3xl font-bold text-emerald-400">{previewData.matched.length}</p>
+            <p className="text-xs text-slate-400 mt-1">Leads will be marked Registered</p>
+          </div>
+          <div className={`p-4 rounded-xl text-center ${previewData.unmatched.length > 0 ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/3 border border-white/8'}`}>
+            <p className={`text-3xl font-bold ${previewData.unmatched.length > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+              {previewData.unmatched.length}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">Registrations without a matching lead</p>
+          </div>
+        </div>
+
+        {previewData.unmatched.length > 0 && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+            <p className="px-3 py-2 text-xs font-medium text-amber-400 border-b border-amber-500/20">
+              Unmatched — will be shown below the report table after confirming
+            </p>
+            <div className="divide-y divide-amber-500/10 max-h-[180px] overflow-y-auto">
+              {previewData.unmatched.map((r, i) => (
+                <div key={i} className="px-3 py-1.5 text-xs text-slate-400 flex gap-4">
+                  {r.name && <span className="text-slate-300 font-medium">{r.name}</span>}
+                  {r.email && <span>{r.email}</span>}
+                  {r.phone && <span>{r.phone}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <Button
+            className="flex-1"
+            onClick={handleConfirm}
+            loading={loading}
+            disabled={previewData.matched.length === 0}
+          >
+            Confirm &amp; Apply
+          </Button>
+          <Button variant="secondary" onClick={() => setStep('mapping')}>Back</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ─── Report Table ─────────────────────────────────────────────────────────────
 function ReportTab({ batchId }: { batchId: string }) {
   const { leads } = useLeads(batchId);
@@ -1007,6 +1294,8 @@ function ReportTab({ batchId }: { batchId: string }) {
   const { reportMap } = useCallReports(batchId);
   const { user } = useAuth();
   const [selectedCallGroup, setSelectedCallGroup] = useState<string>('all');
+  const [showZoomModal, setShowZoomModal] = useState(false);
+  const [zoomUnmatched, setZoomUnmatched] = useState<Array<{ name: string; email: string; phone: string }>>([]);
   const callGroups = groupCallSessions(calls);
 
   useEffect(() => {
@@ -1053,15 +1342,22 @@ function ReportTab({ batchId }: { batchId: string }) {
     <div>
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h3 className="font-semibold text-slate-200">Report Table</h3>
-        <Select
-          value={selectedCallGroup}
-          onChange={(e) => setSelectedCallGroup(e.target.value)}
-          options={[
-            { value: 'all', label: 'All Calls' },
-            ...callGroups.map((group) => ({ value: group.key, label: `${formatDate(group.date)} — ${group.name}` })),
-          ]}
-          className="ml-auto text-xs"
-        />
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+            <Button size="sm" variant="secondary" onClick={() => setShowZoomModal(true)}>
+              <Upload size={14} /> Zoom Registration
+            </Button>
+          )}
+          <Select
+            value={selectedCallGroup}
+            onChange={(e) => setSelectedCallGroup(e.target.value)}
+            options={[
+              { value: 'all', label: 'All Calls' },
+              ...callGroups.map((group) => ({ value: group.key, label: `${formatDate(group.date)} — ${group.name}` })),
+            ]}
+            className="text-xs"
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-white/8">
@@ -1207,6 +1503,63 @@ function ReportTab({ batchId }: { batchId: string }) {
           </tbody>
         </table>
       </div>
+
+      {/* Registered but lead not found */}
+      {zoomUnmatched.length > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-400" />
+              <h4 className="text-sm font-semibold text-amber-400">
+                Registered but Lead Not Found
+                <span className="ml-1 font-normal text-amber-500/80">({zoomUnmatched.length})</span>
+              </h4>
+            </div>
+            <button
+              onClick={() => setZoomUnmatched([])}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+            <table className="table-glass text-xs w-full">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Phone</th>
+                </tr>
+              </thead>
+              <tbody>
+                {zoomUnmatched.map((r, i) => (
+                  <tr key={i}>
+                    <td className="text-slate-500">{i + 1}</td>
+                    <td className="font-medium text-slate-200">{r.name || '—'}</td>
+                    <td className="text-slate-400">{r.email || '—'}</td>
+                    <td className="text-slate-400">{r.phone || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <Modal open={showZoomModal} onClose={() => setShowZoomModal(false)} title="Upload Zoom Registration" size="lg" solid>
+        <ZoomRegistrationForm
+          callGroups={callGroups}
+          leads={leads}
+          batchId={batchId}
+          reportMap={reportMap}
+          onComplete={(unmatched) => {
+            setZoomUnmatched(unmatched);
+            setShowZoomModal(false);
+          }}
+          onClose={() => setShowZoomModal(false)}
+        />
+      </Modal>
     </div>
   );
 }
