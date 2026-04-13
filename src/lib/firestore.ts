@@ -135,6 +135,7 @@ export async function deleteProgramCascade(programId: string): Promise<void> {
   // Delete collections that store programId directly
   await deleteByQuery('callSessions', [where('programId', '==', programId)]);
   await deleteByQuery('leads', [where('programId', '==', programId)]);
+  await deleteByQuery('callTemplates', [where('programId', '==', programId)]);
 
   // Delete batches
   for (let i = 0; i < batchSnap.docs.length; i += 400) {
@@ -167,6 +168,7 @@ export async function deleteLevelCascade(levelId: string): Promise<void> {
 
   await deleteByQuery('callSessions', [where('levelId', '==', levelId)]);
   await deleteByQuery('leads', [where('levelId', '==', levelId)]);
+  await deleteByQuery('callTemplates', [where('levelId', '==', levelId)]);
 
   for (let i = 0; i < batchSnap.docs.length; i += 400) {
     const batch = writeBatch(db);
