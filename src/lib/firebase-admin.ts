@@ -40,30 +40,53 @@ export function getAdminAuth() {
 }
 
 // ─── Verify Firebase ID token and check role from Firestore ───────────────────
+export type TokenResult =
+  | { ok: true; uid: string; role: string }
+  | { ok: false; status: 401 | 403 | 503; reason: string };
+
 export async function verifyUserToken(
   req: Request,
   requiredRole?: string,
-): Promise<{ uid: string; role: string } | null> {
+): Promise<TokenResult> {
   // Accept token from x-firebase-token header OR Authorization: Bearer <token>
   const tokenFromHeader = req.headers.get('x-firebase-token');
   const authHeader = req.headers.get('authorization');
   const token = tokenFromHeader ?? (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null);
-  if (!token) return null;
+  if (!token) return { ok: false, status: 401, reason: 'No auth token provided' };
 
   try {
-    const decoded = await getAdminAuth().verifyIdToken(token);
-    const uid = decoded.uid;
+    let decoded: import('firebase-admin/auth').DecodedIdToken;
+    try {
+      decoded = await getAdminAuth().verifyIdToken(token);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Firebase Admin SDK itself failed to initialise or verify
+      const isConfigError = msg.includes('credential') || msg.includes('private key') ||
+        msg.includes('FIREBASE_ADMIN') || msg.includes('app/no-app') || msg.includes('invalid_grant');
+      console.error('[verifyUserToken] verifyIdToken error:', msg);
+      return {
+        ok: false,
+        status: isConfigError ? 503 : 401,
+        reason: isConfigError
+          ? `Firebase Admin configuration error: ${msg}`
+          : 'Invalid or expired token',
+      };
+    }
 
+    const uid = decoded.uid;
     // Look up role from Firestore (not custom claims)
     const userDoc = await getAdminDb().collection('users').doc(uid).get();
-    if (!userDoc.exists) return null;
+    if (!userDoc.exists) return { ok: false, status: 401, reason: 'User not found' };
     const role = (userDoc.data()?.role as string) ?? '';
 
-    if (requiredRole && role !== requiredRole) return null;
-    return { uid, role };
+    if (requiredRole && role !== requiredRole) {
+      return { ok: false, status: 403, reason: `Role '${role}' is not allowed (need '${requiredRole}')` };
+    }
+    return { ok: true, uid, role };
   } catch (err) {
-    console.error('[verifyUserToken] failed', err);
-    return null;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[verifyUserToken] unexpected error:', msg);
+    return { ok: false, status: 503, reason: `Server error during auth: ${msg}` };
   }
 }
 

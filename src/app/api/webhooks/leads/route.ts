@@ -132,8 +132,9 @@ export async function POST(req: NextRequest) {
       { status: 201 },
     );
   } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Internal server error';
     console.error('[webhook/leads POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -160,7 +161,8 @@ export async function GET(req: NextRequest) {
     const leads = snap.docs.map((d) => d.data());
     return NextResponse.json({ leads, count: leads.length });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Internal server error';
     console.error('[webhook/leads GET]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -7,9 +7,9 @@ import type { WebhookEvent } from '@/types';
 // Body: { event: WebhookEvent, data: object }
 // Auth: Firebase ID token in x-firebase-token or Authorization: Bearer <token>
 export async function POST(req: NextRequest) {
-  const user = await verifyUserToken(req, 'admin');
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await verifyUserToken(req, 'admin');
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.reason }, { status: auth.status });
   }
 
   let body: { event: WebhookEvent; data: Record<string, unknown> };
@@ -55,7 +55,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ fired, count: fired.length });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Internal server error';
     console.error('[webhook/fire POST]', err);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
