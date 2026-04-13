@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { ClipboardList, Search, Filter, X } from 'lucide-react';
+import { ClipboardList, Search, Filter, X, Calendar, ChevronRight } from 'lucide-react';
 import {
   collection, query, where, orderBy, onSnapshot,
 } from 'firebase/firestore';
@@ -12,10 +12,11 @@ import { useFilter } from '@/contexts/FilterContext';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useLevels } from '@/hooks/useLevels';
 import { useBatches } from '@/hooks/useBatches';
+import { useAssignedBatches } from '@/hooks/useAssignedBatches';
 import { updateDocument, createDocument } from '@/lib/firestore';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { formatCallSessionLabel, sortCallSessions } from '@/lib/utils';
+import { formatCallSessionLabel, formatDate, sortCallSessions } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
   Lead, CallSession, Batch, LeadCallReport,
@@ -120,7 +121,6 @@ function CallingAssistView({ leads, calls, reports, uid }: {
         <table className="table-glass w-full">
           <thead>
             <tr>
-              <th>Sr.</th>
               <th>Name</th>
               <th>Phone</th>
               <th>Status</th>
@@ -134,7 +134,6 @@ function CallingAssistView({ leads, calls, reports, uid }: {
               const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
               return (
                 <tr key={lead.id}>
-                  <td className="text-slate-500">{lead.serialNumber}</td>
                   <td className="font-medium text-slate-200">{lead.name}</td>
                   <td className="text-slate-400">{lead.phone}</td>
                   <td className="min-w-[180px]">
@@ -273,8 +272,150 @@ function BackendAssistView({ leads, calls, reports, uid }: {
   );
 }
 
+// ─── Calling Assist Page ───────────────────────────────────────────────────────
+function CallingAssistPage({ uid }: { uid: string }) {
+  const { batches, loading: batchesLoading } = useAssignedBatches(uid);
+  const { programs } = usePrograms();
+
+  const [activeBatch, setActiveBatch] = useState<Batch | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [calls, setCalls] = useState<CallSession[]>([]);
+  const [reports, setReports] = useState<LeadCallReport[]>([]);
+  const [loadingData, setLoadingData] = useState(false);
+
+  // Load live data when a batch is selected
+  useEffect(() => {
+    if (!activeBatch) return;
+    setLoadingData(true);
+
+    const leadsQ = query(
+      collection(db, 'leads'),
+      where('batchId', '==', activeBatch.id),
+      orderBy('serialNumber', 'asc'),
+    );
+    const callsQ = query(
+      collection(db, 'callSessions'),
+      where('batchId', '==', activeBatch.id),
+      orderBy('date', 'asc'),
+      orderBy('order', 'asc'),
+    );
+    const reportsQ = query(collection(db, 'callReports'), where('batchId', '==', activeBatch.id));
+
+    const unsubs = [
+      onSnapshot(leadsQ, (snap) => {
+        setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
+        setLoadingData(false);
+      }),
+      onSnapshot(callsQ, (snap) => {
+        setCalls(sortCallSessions(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallSession))));
+      }),
+      onSnapshot(reportsQ, (snap) => {
+        setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() } as LeadCallReport)));
+      }),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [activeBatch]);
+
+  // If a batch was assigned to this user but was later unassigned, clear it
+  useEffect(() => {
+    if (activeBatch && !batches.find((b) => b.id === activeBatch.id)) {
+      setActiveBatch(null);
+    }
+  }, [batches, activeBatch]);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold gradient-text">Assign Data</h1>
+        <p className="text-slate-500 text-sm mt-1">Update calling status for your assigned leads</p>
+      </div>
+
+      {batchesLoading ? (
+        <div className="glass-card p-8 text-center text-slate-500">Loading…</div>
+      ) : batches.length === 0 ? (
+        <div className="glass-card p-12 text-center">
+          <ClipboardList size={40} className="text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-400 font-medium">No batches assigned to you yet</p>
+          <p className="text-slate-600 text-sm mt-1">Your manager will assign a batch when it's ready</p>
+        </div>
+      ) : !activeBatch ? (
+        /* Batch picker */
+        <div className="space-y-3">
+          <p className="text-sm text-slate-400 mb-4">Select a batch to start calling:</p>
+          {batches.map((b) => {
+            const prog = programs.find((p) => p.id === b.programId);
+            return (
+              <button
+                key={b.id}
+                onClick={() => setActiveBatch(b)}
+                className="w-full flex items-center gap-4 glass-card p-4 text-left hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all group"
+              >
+                <div className="w-11 h-11 rounded-xl bg-cyan-500/15 flex items-center justify-center text-cyan-400 text-sm font-bold flex-shrink-0">
+                  #{b.batchNumber}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-100 group-hover:text-indigo-300 transition-colors">
+                    {b.batchName || `Batch ${b.batchNumber}`}
+                  </p>
+                  {prog && <p className="text-xs text-slate-500 mt-0.5">{prog.name}</p>}
+                  {(b.startDate || b.endDate) && (
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5">
+                      <Calendar size={10} />
+                      {b.startDate && <span>{formatDate(b.startDate)}</span>}
+                      {b.startDate && b.endDate && <span>→</span>}
+                      {b.endDate && <span>{formatDate(b.endDate)}</span>}
+                    </div>
+                  )}
+                </div>
+                <ChevronRight size={16} className="text-slate-600 group-hover:text-indigo-400 transition-colors flex-shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        /* Active batch work view */
+        <div>
+          <div className="flex items-center gap-3 mb-5">
+            <button
+              onClick={() => setActiveBatch(null)}
+              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              ← Back to batches
+            </button>
+            <span className="text-slate-600">/</span>
+            <span className="text-sm font-medium text-slate-300">
+              {activeBatch.batchName || `Batch ${activeBatch.batchNumber}`}
+            </span>
+          </div>
+          {loadingData ? (
+            <div className="glass-card p-8 text-center text-slate-500">Loading…</div>
+          ) : leads.length === 0 ? (
+            <div className="glass-card p-8 text-center text-slate-500">No leads in this batch yet.</div>
+          ) : (
+            <div className="glass-card p-5">
+              <CallingAssistView leads={leads} calls={calls} reports={reports} uid={uid} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function AssignDataPage() {
+  const { user } = useAuth();
+
+  // Calling assists get their own dedicated flow
+  if (user?.role === 'calling_assist') {
+    return <CallingAssistPage uid={user.uid} />;
+  }
+
+  return <BackendManagerPage />;
+}
+
+// ─── Backend / Manager / Admin Page ───────────────────────────────────────────
+function BackendManagerPage() {
   const { user } = useAuth();
 
   // ── Cascading filters (shared across pages via FilterContext) ──
@@ -360,9 +501,7 @@ export default function AssignDataPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold gradient-text">Assign Data</h1>
         <p className="text-slate-500 text-sm mt-1">
-          {user?.role === 'calling_assist'
-            ? 'Update calling status for your assigned leads'
-            : user?.role === 'backend_assist'
+          {user?.role === 'backend_assist'
             ? 'Manage your assigned leads and update handler status'
             : 'View and manage all lead reports'}
         </p>
@@ -441,13 +580,10 @@ export default function AssignDataPage() {
         </div>
       ) : (
         <div className="glass-card p-5">
-          {user?.role === 'calling_assist' ? (
-            <CallingAssistView leads={leads} calls={calls} reports={reports} uid={user.uid} />
-          ) : (
-            <BackendAssistView leads={leads} calls={calls} reports={reports} uid={user?.uid ?? ''} />
-          )}
+          <BackendAssistView leads={leads} calls={calls} reports={reports} uid={user?.uid ?? ''} />
         </div>
       )}
     </div>
   );
 }
+

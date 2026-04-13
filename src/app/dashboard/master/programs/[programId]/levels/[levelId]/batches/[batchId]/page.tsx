@@ -7,9 +7,9 @@ import toast from 'react-hot-toast';
 import {
   Plus, Upload, Phone, Users, Settings2, Trash2, Pencil,
   ChevronLeft, RefreshCw, Download, ChevronRight, AlertTriangle,
-  TrendingUp, Trophy, ClipboardList,
+  TrendingUp, Trophy, ClipboardList, UserCheck, UserX,
 } from 'lucide-react';
-import { doc, getDoc, collection, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, collection, writeBatch, arrayUnion, arrayRemove, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Papa from 'papaparse';
 import { useLeads } from '@/hooks/useLeads';
@@ -39,7 +39,7 @@ import type {
 } from '@/types';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
-type Tab = 'leads' | 'calls' | 'fields' | 'report';
+type Tab = 'leads' | 'calls' | 'fields' | 'report' | 'assign';
 
 type CallGroup = {
   key: string;
@@ -2028,6 +2028,85 @@ function ReportTab({ batchId }: { batchId: string }) {
   );
 }
 
+// ─── Assign Tab ───────────────────────────────────────────────────────────────
+function AssignTab({ batchId, assignedIds }: { batchId: string; assignedIds: string[] }) {
+  const { users, loading } = useUsers('calling_assist');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function toggle(uid: string) {
+    setBusy(uid);
+    const batchRef = doc(db, 'batches', batchId);
+    try {
+      if (assignedIds.includes(uid)) {
+        await updateDoc(batchRef, { assignedCallingAssistIds: arrayRemove(uid) });
+        toast.success('Unassigned');
+      } else {
+        await updateDoc(batchRef, { assignedCallingAssistIds: arrayUnion(uid) });
+        toast.success('Assigned');
+      }
+    } catch {
+      toast.error('Failed to update assignment');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (loading) return <div className="text-center text-slate-500 py-8">Loading…</div>;
+
+  if (users.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <UserCheck size={36} className="text-slate-600 mx-auto mb-3" />
+        <p className="text-slate-400">No calling assist users found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-slate-500 mb-4">
+        Assigned calling assists can see this batch in their <strong className="text-slate-300">Assign Data</strong> page.
+        Un-assign to hide it from them once work is done.
+      </p>
+      {users.map((u) => {
+        const assigned = assignedIds.includes(u.uid);
+        const isBusy = busy === u.uid;
+        return (
+          <div
+            key={u.uid}
+            className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+              assigned
+                ? 'border-indigo-500/30 bg-indigo-500/8'
+                : 'border-white/6 bg-white/2'
+            }`}
+          >
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+              {u.displayName.charAt(0).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-slate-200 truncate">{u.displayName}</p>
+              <p className="text-xs text-slate-500 truncate">{u.email}</p>
+            </div>
+            <button
+              onClick={() => toggle(u.uid)}
+              disabled={isBusy}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                assigned
+                  ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20'
+                  : 'bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 border border-indigo-500/20'
+              } disabled:opacity-50`}
+            >
+              {assigned
+                ? <><UserX size={13} /> Unassign</>
+                : <><UserCheck size={13} /> Assign</>}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Main Batch Page ─────────────────────────────────────────────────────────
 export default function BatchDetailPage() {
   const { programId, levelId, batchId } = useParams<{ programId: string; levelId: string; batchId: string }>();
@@ -2040,19 +2119,29 @@ export default function BatchDetailPage() {
     Promise.all([
       getDoc(doc(db, 'programs', programId)),
       getDoc(doc(db, 'levels', levelId)),
-      getDoc(doc(db, 'batches', batchId)),
-    ]).then(([pSnap, lSnap, bSnap]) => {
+    ]).then(([pSnap, lSnap]) => {
       if (pSnap.exists()) setProgram({ id: pSnap.id, ...pSnap.data() } as Program);
       if (lSnap.exists()) setLevel({ id: lSnap.id, ...lSnap.data() } as Level);
-      if (bSnap.exists()) setBatch({ id: bSnap.id, ...bSnap.data() } as Batch);
     });
   }, [programId, levelId, batchId]);
+
+  // Live-subscribe to batch doc so assignment changes reflect immediately
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'batches', batchId), (snap) => {
+      if (snap.exists()) setBatch({ id: snap.id, ...snap.data() } as Batch);
+    });
+    return unsub;
+  }, [batchId]);
+
+  const { user: authUser } = useAuth();
+  const canAssign = authUser?.role === 'admin' || authUser?.role === 'backend_manager' || authUser?.role === 'backend_assist';
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'calls', label: 'Calls' },
     { key: 'leads', label: 'Leads' },
     { key: 'fields', label: 'Custom Fields' },
     { key: 'report', label: 'Full Report' },
+    ...(canAssign ? [{ key: 'assign' as Tab, label: 'Assign' }] : []),
   ];
 
   return (
@@ -2103,6 +2192,7 @@ export default function BatchDetailPage() {
         {tab === 'calls' && <CallsTab batchId={batchId} programId={programId} levelId={levelId} />}
         {tab === 'fields' && <FieldsTab batchId={batchId} />}
         {tab === 'report' && <ReportTab batchId={batchId} />}
+        {tab === 'assign' && <AssignTab batchId={batchId} assignedIds={batch?.assignedCallingAssistIds ?? []} />}
       </div>
     </div>
   );

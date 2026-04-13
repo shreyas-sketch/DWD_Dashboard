@@ -41,6 +41,7 @@ export interface Batch {
   startDate: string; // ISO date string
   endDate: string;
   remarks: string;
+  assignedCallingAssistIds?: string[]; // UIDs of calling_assist users assigned to this batch
   createdAt: string;
   updatedAt: string;
   createdBy: string;

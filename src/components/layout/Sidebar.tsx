@@ -17,6 +17,7 @@ import {
   Moon,
   UserCog,
   BarChart2,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -66,6 +67,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Reports',
     href: '/dashboard/report',
     icon: <BarChart2 size={18} />,
+    roles: ['admin', 'backend_manager'],
+  },
+  {
+    label: 'Call Templates',
+    href: '/dashboard/call-templates',
+    icon: <FileText size={18} />,
     roles: ['admin', 'backend_manager'],
   },
 ];
