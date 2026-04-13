@@ -14,14 +14,33 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  // Accept data from JSON body OR query-string params (Pabbly "Set Parameters" mode)
+  const qp = req.nextUrl.searchParams;
+  let body: Record<string, string | undefined> = {};
+
+  const contentType = req.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      const text = await req.text();
+      if (text.trim()) body = JSON.parse(text);
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
   }
 
-  const { batchId, programId, levelId, batchNumber, name, email, phone } = body as Record<string, string | undefined>;
+  // Query params act as fallback (or primary when Pabbly sends "Set Parameters")
+  const merged: Record<string, string | undefined> = {
+    batchId: qp.get('batchId') ?? undefined,
+    programId: qp.get('programId') ?? undefined,
+    levelId: qp.get('levelId') ?? undefined,
+    batchNumber: qp.get('batchNumber') ?? undefined,
+    name: qp.get('name') ?? undefined,
+    email: qp.get('email') ?? undefined,
+    phone: qp.get('phone') ?? undefined,
+    ...body, // JSON body wins if both present
+  };
+
+  const { batchId, programId, levelId, batchNumber, name, email, phone } = merged;
 
   if (!name && !email && !phone) {
     return NextResponse.json({ error: 'At least one of name, email, phone is required' }, { status: 400 });

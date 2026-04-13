@@ -9,17 +9,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  // Accept data from JSON body OR query-string params (Pabbly "Set Parameters" mode)
+  const qp = req.nextUrl.searchParams;
+  let body: Record<string, string | undefined> = {};
+
+  const contentType = req.headers.get('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    try {
+      const text = await req.text();
+      if (text.trim()) body = JSON.parse(text);
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
   }
 
-  const { programId, levelId, batchNumber, batchName, startDate, endDate, remarks } = body as Record<
-    string,
-    string | undefined
-  >;
+  const merged: Record<string, string | undefined> = {
+    programId: qp.get('programId') ?? undefined,
+    levelId: qp.get('levelId') ?? undefined,
+    batchNumber: qp.get('batchNumber') ?? undefined,
+    batchName: qp.get('batchName') ?? undefined,
+    startDate: qp.get('startDate') ?? undefined,
+    endDate: qp.get('endDate') ?? undefined,
+    remarks: qp.get('remarks') ?? undefined,
+    ...body,
+  };
+
+  const { programId, levelId, batchNumber, batchName, startDate, endDate, remarks } = merged;
 
   if (!programId) return NextResponse.json({ error: 'programId is required' }, { status: 400 });
   if (!levelId) return NextResponse.json({ error: 'levelId is required' }, { status: 400 });
