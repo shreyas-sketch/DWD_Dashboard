@@ -19,10 +19,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Toaster
             position="top-right"
             toastOptions={{
+              className: 'toast-glass',
               style: {
-                background: 'rgba(15, 15, 46, 0.95)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                color: '#f1f5f9',
+                background: 'var(--toast-bg)',
+                border: '1px solid var(--toast-border)',
+                color: 'var(--toast-color)',
                 backdropFilter: 'blur(16px)',
               },
             }}

@@ -48,7 +48,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
         <div
           className={cn(
             'pointer-events-auto w-full rounded-2xl border border-white/10 shadow-2xl',
-            'bg-[#0d1323] flex flex-col max-h-[90vh]',
+            'bg-[#0d1323] modal-solid flex flex-col max-h-[90vh]',
             sizeClass,
           )}
         >
