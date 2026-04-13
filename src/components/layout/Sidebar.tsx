@@ -19,6 +19,7 @@ import {
   BarChart2,
   FileText,
   Webhook,
+  Flame,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -69,6 +70,12 @@ const NAV_ITEMS: NavItem[] = [
     href: '/dashboard/report',
     icon: <BarChart2 size={18} />,
     roles: ['admin', 'backend_manager'],
+  },
+  {
+    label: 'Utilize Lead',
+    href: '/dashboard/utilize-lead',
+    icon: <Flame size={18} />,
+    roles: ['admin'],
   },
   {
     label: 'Call Templates',
