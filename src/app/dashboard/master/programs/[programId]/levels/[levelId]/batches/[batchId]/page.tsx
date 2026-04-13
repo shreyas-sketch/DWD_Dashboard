@@ -7,13 +7,14 @@ import toast from 'react-hot-toast';
 import {
   Plus, Upload, Phone, Users, Settings2, Trash2, Pencil,
   ChevronLeft, RefreshCw, Download, ChevronRight, AlertTriangle,
-  TrendingUp, Trophy,
+  TrendingUp, Trophy, ClipboardList,
 } from 'lucide-react';
 import { doc, getDoc, collection, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Papa from 'papaparse';
 import { useLeads } from '@/hooks/useLeads';
 import { useCallSessions } from '@/hooks/useCallSessions';
+import { useCallTemplates } from '@/hooks/useCallTemplates';
 import { useCustomFields } from '@/hooks/useCustomFields';
 import { useCallReports } from '@/hooks/useCallReports';
 import { useUsers } from '@/hooks/useUsers';
@@ -34,6 +35,7 @@ import {
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
   Program, Level, Batch, CallSession, CallSessionType, CustomField, Lead, LeadCallReport, CustomFieldType, LeadTag,
+  CallTemplate,
 } from '@/types';
 
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
@@ -46,6 +48,17 @@ type CallGroup = {
   order: number;
   sessions: CallSession[];
 };
+
+const CALL_NAME_PRESETS = [
+  'L0 - Day 1 Workshop',
+  'L0 - Day 2 Workshop',
+  'L1 - Day 1',
+  'L1 - Day 2',
+  'Event Day 1',
+  'Event Day 2',
+  'Event Day 3',
+  'Event Day 4',
+] as const;
 
 const CALL_SESSION_TYPE_OPTIONS: Array<{ value: CallSessionType; label: string }> = [
   { value: 'main', label: 'Main Call' },
@@ -124,9 +137,14 @@ function CallsTab({
   batchId, programId, levelId,
 }: { batchId: string; programId: string; levelId: string }) {
   const { calls, loading } = useCallSessions(batchId);
+  const { templates } = useCallTemplates(levelId);
   const { user } = useAuth();
   const [showAdd, setShowAdd] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templateForDates, setTemplateForDates] = useState<CallTemplate | null>(null);
   const callGroups = groupCallSessions(calls);
+
+  const canEdit = user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist';
 
   async function handleCreate(date: string, name: string, sessionTypes: CallSessionType[]) {
     const trimmedName = name.trim();
@@ -161,6 +179,34 @@ function CallsTab({
     toast.success('Call added');
   }
 
+  // Called after user assigns dates to template entries
+  async function handleCreateFromTemplate(entries: Array<{ name: string; date: string; sessionTypes: CallSessionType[] }>) {
+    const baseOrder = calls.length === 0 ? 0 : Math.max(...calls.map((c) => c.order)) + 1;
+    const write = writeBatch(db);
+    const now = new Date().toISOString();
+
+    entries.forEach((entry, idx) => {
+      entry.sessionTypes.forEach((sessionType) => {
+        const ref = doc(collection(db, 'callSessions'));
+        write.set(ref, {
+          batchId,
+          programId,
+          levelId,
+          date: entry.date,
+          name: entry.name,
+          order: baseOrder + idx,
+          sessionType,
+          createdAt: now,
+          updatedAt: now,
+          createdBy: user!.uid,
+        });
+      });
+    });
+
+    await write.commit();
+    toast.success(`${entries.length} call${entries.length !== 1 ? 's' : ''} created from template!`);
+  }
+
   async function handleDelete(group: CallGroup) {
     if (!confirm('Delete this call and all of its sub-sessions?')) return;
 
@@ -177,10 +223,17 @@ function CallsTab({
     <div>
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-slate-200">Calls</h3>
-        {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
-          <Button size="sm" onClick={() => setShowAdd(true)}>
-            <Plus size={14} /> Add Call
-          </Button>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            {templates.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={() => setShowTemplatePicker(true)}>
+                <ClipboardList size={14} /> From Template
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setShowAdd(true)}>
+              <Plus size={14} /> Add Call
+            </Button>
+          </div>
         )}
       </div>
 
@@ -190,6 +243,14 @@ function CallsTab({
         <div className="text-center py-10">
           <Phone size={32} className="text-slate-600 mx-auto mb-2" />
           <p className="text-slate-500 text-sm">No calls configured yet</p>
+          {canEdit && templates.length > 0 && (
+            <button
+              onClick={() => setShowTemplatePicker(true)}
+              className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+            >
+              Load from a template
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -206,7 +267,7 @@ function CallsTab({
                     ))}
                   </div>
                 </div>
-                {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
+                {canEdit && (
                   <button onClick={() => handleDelete(group)} className="text-slate-600 hover:text-red-400 transition-colors">
                     <Trash2 size={14} />
                   </button>
@@ -217,10 +278,147 @@ function CallsTab({
         </div>
       )}
 
+      {/* Add single call */}
       <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Call">
         <CallForm onSave={handleCreate} onClose={() => setShowAdd(false)} />
       </Modal>
+
+      {/* Step 1 — Pick a template */}
+      <Modal open={showTemplatePicker} onClose={() => setShowTemplatePicker(false)} title="Pick a Call Template" size="md">
+        <TemplatePicker
+          templates={templates}
+          onPick={(t) => { setShowTemplatePicker(false); setTemplateForDates(t); }}
+          onClose={() => setShowTemplatePicker(false)}
+        />
+      </Modal>
+
+      {/* Step 2 — Assign dates */}
+      <Modal
+        open={!!templateForDates}
+        onClose={() => setTemplateForDates(null)}
+        title={`Assign Dates — ${templateForDates?.templateName ?? ''}`}
+        size="lg"
+      >
+        {templateForDates && (
+          <TemplateDateAssigner
+            template={templateForDates}
+            onSave={async (entries) => {
+              await handleCreateFromTemplate(entries);
+              setTemplateForDates(null);
+            }}
+            onClose={() => setTemplateForDates(null)}
+          />
+        )}
+      </Modal>
     </div>
+  );
+}
+
+// ─── Template Picker ─────────────────────────────────────────────────────────
+function TemplatePicker({
+  templates,
+  onPick,
+  onClose,
+}: {
+  templates: CallTemplate[];
+  onPick: (t: CallTemplate) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      {templates.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onPick(t)}
+          className="w-full text-left rounded-xl border border-white/8 bg-white/3 p-4 hover:border-indigo-500/40 hover:bg-indigo-500/5 transition-all group"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center text-indigo-400 flex-shrink-0 group-hover:bg-indigo-500/25">
+              <ClipboardList size={15} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-slate-200 text-sm">{t.templateName}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{t.entries.length} call{t.entries.length !== 1 ? 's' : ''}</p>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {t.entries.map((e, i) => (
+                  <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-slate-400">{e.name}</span>
+                ))}
+              </div>
+            </div>
+            <ChevronRight size={14} className="text-slate-600 group-hover:text-indigo-400 flex-shrink-0 mt-1 transition-colors" />
+          </div>
+        </button>
+      ))}
+      <div className="flex justify-end pt-1">
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Template Date Assigner ───────────────────────────────────────────────────
+function TemplateDateAssigner({
+  template,
+  onSave,
+  onClose,
+}: {
+  template: CallTemplate;
+  onSave: (entries: Array<{ name: string; date: string; sessionTypes: CallSessionType[] }>) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [dates, setDates] = useState<string[]>(template.entries.map(() => ''));
+  const [loading, setLoading] = useState(false);
+
+  async function handle(e: React.FormEvent) {
+    e.preventDefault();
+    const allFilled = dates.every((d) => d);
+    if (!allFilled) { toast.error('Please fill in all dates'); return; }
+    setLoading(true);
+    try {
+      await onSave(
+        template.entries.map((entry, i) => ({
+          name: entry.name,
+          date: dates[i],
+          sessionTypes: entry.sessionTypes,
+        })),
+      );
+    } finally { setLoading(false); }
+  }
+
+  return (
+    <form onSubmit={handle} className="space-y-4">
+      <p className="text-sm text-slate-400">Assign a date to every call in this template.</p>
+      <div className="space-y-3">
+        {template.entries.map((entry, i) => (
+          <div key={i} className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/3 p-3">
+            <div className="flex-1">
+              <p className="text-sm font-medium text-slate-200">{entry.name}</p>
+              <div className="flex gap-1 mt-1">
+                {entry.sessionTypes.map((st) => (
+                  <span key={st} className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400">
+                    {st === 'main' ? 'Main' : st === 'doubt1' ? 'Doubt 1' : 'Doubt 2'}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <input
+              type="date"
+              required
+              value={dates[i]}
+              onChange={(ev) => setDates((prev) => prev.map((d, idx) => idx === i ? ev.target.value : d))}
+              className="input-glass w-42 text-sm"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-3 pt-2">
+        <Button type="submit" loading={loading} className="flex-1">
+          Create {template.entries.length} Call{template.entries.length !== 1 ? 's' : ''}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </form>
   );
 }
 
@@ -232,13 +430,18 @@ function CallForm({
   onClose: () => void;
 }) {
   const [date, setDate] = useState('');
-  const [name, setName] = useState('');
+  // 'preset' or 'other'
+  const [nameMode, setNameMode] = useState<'preset' | 'other'>('preset');
+  const [selectedPreset, setSelectedPreset] = useState<string>(CALL_NAME_PRESETS[0]);
+  const [customName, setCustomName] = useState('');
   const [sessionTypes, setSessionTypes] = useState<Record<CallSessionType, boolean>>({
     main: true,
     doubt1: false,
     doubt2: false,
   });
   const [loading, setLoading] = useState(false);
+
+  const finalName = nameMode === 'preset' ? selectedPreset : customName.trim();
 
   function toggleSessionType(sessionType: CallSessionType) {
     setSessionTypes((current) => ({
@@ -249,7 +452,7 @@ function CallForm({
 
   async function handle(e: React.FormEvent) {
     e.preventDefault();
-    if (!date || !name.trim()) return;
+    if (!date || !finalName) return;
     const selectedSessionTypes = CALL_SESSION_TYPE_OPTIONS
       .filter((option) => sessionTypes[option.value])
       .map((option) => option.value);
@@ -260,14 +463,58 @@ function CallForm({
     }
 
     setLoading(true);
-    try { await onSave(date, name.trim(), selectedSessionTypes); onClose(); }
+    try { await onSave(date, finalName, selectedSessionTypes); onClose(); }
     finally { setLoading(false); }
   }
 
   return (
     <form onSubmit={handle} className="space-y-4">
       <Input label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-      <Input label="Call Name" placeholder="e.g. Call 1st, 3Day - 1" value={name} onChange={(e) => setName(e.target.value)} required />
+
+      {/* Name selector */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-300">Call Name</p>
+        {/* Preset tiles */}
+        <div className="grid grid-cols-2 gap-2">
+          {CALL_NAME_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => { setNameMode('preset'); setSelectedPreset(preset); }}
+              className={`text-left px-3 py-2 rounded-xl border text-sm transition-all duration-150 ${
+                nameMode === 'preset' && selectedPreset === preset
+                  ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300'
+                  : 'border-white/8 bg-white/3 text-slate-400 hover:border-white/15 hover:text-slate-200'
+              }`}
+            >
+              {preset}
+            </button>
+          ))}
+          {/* Other tile */}
+          <button
+            type="button"
+            onClick={() => setNameMode('other')}
+            className={`text-left px-3 py-2 rounded-xl border text-sm transition-all duration-150 ${
+              nameMode === 'other'
+                ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
+                : 'border-white/8 bg-white/3 text-slate-400 hover:border-white/15 hover:text-slate-200'
+            }`}
+          >
+            Other (custom)
+          </button>
+        </div>
+        {/* Custom name input — only shown when Other is selected */}
+        {nameMode === 'other' && (
+          <Input
+            label="Enter custom name"
+            placeholder="e.g. Special Session"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            required
+          />
+        )}
+      </div>
+
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-300">Subheaders</p>
         <div className="grid gap-2 sm:grid-cols-3">

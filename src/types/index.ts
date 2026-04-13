@@ -62,6 +62,24 @@ export interface CallSession {
   createdBy: string;
 }
 
+// ─── Call Templates ──────────────────────────────────────────────────────────
+
+export interface CallTemplateEntry {
+  name: string;
+  sessionTypes: CallSessionType[];
+}
+
+export interface CallTemplate {
+  id: string;
+  levelId: string;
+  programId: string;
+  templateName: string; // e.g. "Standard L0 Schedule"
+  entries: CallTemplateEntry[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+}
+
 // ─── Custom Fields ───────────────────────────────────────────────────────────
 
 export type CustomFieldType = 'text' | 'dropdown' | 'checkbox' | 'date';

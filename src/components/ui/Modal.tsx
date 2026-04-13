@@ -10,10 +10,11 @@ interface ModalProps {
   title: string;
   children: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  /** @deprecated - all modals now use a solid background */
   solid?: boolean;
 }
 
-export function Modal({ open, onClose, title, children, size = 'md', solid = false }: ModalProps) {
+export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -31,25 +32,30 @@ export function Modal({ open, onClose, title, children, size = 'md', solid = fal
   }[size];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div
-        className={cn(
-          'relative w-full glass-card p-6 shadow-2xl',
-          solid && 'modal-solid',
-          sizeClass,
-        )}
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-white/5"
-          >
-            <X size={18} />
-          </button>
+    /* Scrollable overlay — handles taller-than-viewport modals */
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      {/* Backdrop — fixed so it never scrolls away */}
+      <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
+      {/* Centering wrapper — pointer-events-none lets backdrop capture outside clicks */}
+      <div className="relative flex min-h-full items-center justify-center p-4 pointer-events-none">
+        <div
+          className={cn(
+            'pointer-events-auto w-full rounded-2xl border border-white/10 p-6 shadow-2xl',
+            'bg-[#0d1323]',
+            sizeClass,
+          )}
+        >
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
+            <button
+              onClick={onClose}
+              className="text-slate-500 hover:text-slate-200 transition-colors p-1 rounded-lg hover:bg-white/5"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {children}
         </div>
-        {children}
       </div>
     </div>
   );
