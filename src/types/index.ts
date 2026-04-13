@@ -152,7 +152,10 @@ export type HandlerStatus =
   | 'Message Sent'
   | 'Will Attend/Will join'
   | 'Call Them'
-  | "Don't Call Them";
+  | "Don't Call Them"
+  | 'JOINED'
+  | 'Dropped from call'
+  | 'Not Active';
 
 export interface LeadCallReport {
   id: string;
@@ -200,4 +203,7 @@ export const HANDLER_OPTIONS: HandlerStatus[] = [
   'Will Attend/Will join',
   'Call Them',
   "Don't Call Them",
+  'JOINED',
+  'Dropped from call',
+  'Not Active',
 ];

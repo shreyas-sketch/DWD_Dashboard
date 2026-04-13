@@ -95,3 +95,64 @@ export function sortCallSessions<T extends CallSession>(calls: T[]): T[] {
 export function formatCallSessionLabel(call: CallSession): string {
   return `${formatDate(call.date)} — ${call.name} (${getCallSessionTypeLabel(call.sessionType)})`;
 }
+
+// ─── Status color helpers ─────────────────────────────────────────────────────
+
+const CA_RED = new Set(['Out Of Service-NR', 'Incoming Inactive-NR', "Won't Attend-NR"]);
+const CA_GREEN = new Set(['Will Attend/Will join', 'Message Sent']);
+const CA_BLUE = new Set(['Call Them']);
+
+export function isCallingAssistRedFlag(status: string): boolean {
+  return CA_RED.has(status);
+}
+
+/** Text color class for a calling-assist status value. */
+export function getCallingAssistColor(status: string): string {
+  if (!status) return 'text-slate-400';
+  if (CA_RED.has(status)) return 'text-red-400';
+  if (CA_GREEN.has(status)) return 'text-emerald-400';
+  if (CA_BLUE.has(status)) return 'text-sky-400';
+  return 'text-slate-200';
+}
+
+/** Badge classes (text + bg + border) for a calling-assist status. */
+export function getCallingAssistBadge(status: string): string {
+  if (CA_RED.has(status)) return 'text-red-400 bg-red-500/10 border-red-500/20';
+  if (CA_GREEN.has(status)) return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+  if (CA_BLUE.has(status)) return 'text-sky-400 bg-sky-500/10 border-sky-500/20';
+  return 'text-slate-200 bg-white/5 border-white/10';
+}
+
+/** Card bg+border classes for a calling-assist status. */
+export function getCallingAssistCardBg(status: string): string {
+  if (CA_RED.has(status)) return 'bg-red-500/8 border-red-500/20';
+  if (CA_GREEN.has(status)) return 'bg-emerald-500/8 border-emerald-500/20';
+  if (CA_BLUE.has(status)) return 'bg-sky-500/8 border-sky-500/20';
+  return 'bg-white/3 border-white/6';
+}
+
+const H_RED = new Set(['Out Of Service-NR', 'Incoming Inactive-NR', "Won't Attend-NR", "Don't Call Them"]);
+const H_GREEN = new Set(['Will Attend/Will join', 'Message Sent']);
+
+/** Text color class for a handler status value. */
+export function getHandlerStatusColor(status: string): string {
+  if (!status) return 'text-slate-400';
+  if (H_RED.has(status)) return 'text-red-400';
+  if (status === 'Dropped from call') return 'text-red-600';
+  if (status === 'JOINED') return 'text-green-600';
+  if (status === 'Not Active') return 'text-yellow-600';
+  if (H_GREEN.has(status)) return 'text-emerald-400';
+  if (status === 'Call Them') return 'text-sky-400';
+  return 'text-slate-200';
+}
+
+/** Card bg+border classes for a handler status. */
+export function getHandlerCardBg(status: string): string {
+  if (H_RED.has(status)) return 'bg-red-500/8 border-red-500/20';
+  if (status === 'Dropped from call') return 'bg-red-600/10 border-red-600/25';
+  if (status === 'JOINED') return 'bg-green-600/10 border-green-600/25';
+  if (status === 'Not Active') return 'bg-yellow-600/10 border-yellow-600/25';
+  if (H_GREEN.has(status)) return 'bg-emerald-500/8 border-emerald-500/20';
+  if (status === 'Call Them') return 'bg-sky-500/8 border-sky-500/20';
+  return 'bg-white/3 border-white/6';
+}

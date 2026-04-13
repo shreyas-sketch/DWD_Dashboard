@@ -16,18 +16,12 @@ import { useAssignedBatches } from '@/hooks/useAssignedBatches';
 import { updateDocument, createDocument } from '@/lib/firestore';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { formatCallSessionLabel, formatDate, sortCallSessions } from '@/lib/utils';
+import { formatCallSessionLabel, formatDate, sortCallSessions, getCallingAssistColor, isCallingAssistRedFlag, getCallingAssistBadge, getHandlerStatusColor } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
   Lead, CallSession, Batch, LeadCallReport,
   CallingAssistStatus, HandlerStatus,
 } from '@/types';
-
-const CALLING_ASSIST_RED_FLAGS = new Set([
-  'Out Of Service-NR',
-  'Incoming Inactive-NR',
-  "Won't Attend-NR",
-]);
 
 // ─── Helper: upsert call report ────────────────────────────────────────────────
 async function upsertReport(
@@ -81,7 +75,7 @@ function CallingAssistView({ leads, calls, reports, uid }: {
     const key = `${lead.id}_${activeCall.id}`;
     const existing = reportMap.get(key);
     const autoHandler: HandlerStatus | null = value
-      ? CALLING_ASSIST_RED_FLAGS.has(value)
+      ? isCallingAssistRedFlag(value)
         ? "Don't Call Them"
         : 'Call Them'
       : null;
@@ -131,16 +125,13 @@ function CallingAssistView({ leads, calls, reports, uid }: {
               const key = `${lead.id}_${selectedCall}`;
               const rep = reportMap.get(key);
               const caVal = rep?.callingAssistReport ?? '';
-              const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
               return (
                 <tr key={lead.id}>
                   <td className="font-medium text-slate-200">{lead.name}</td>
                   <td className="text-slate-400">{lead.phone}</td>
                   <td className="min-w-[180px]">
                     <select
-                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${
-                        isRedFlag ? 'text-red-400' : caVal ? 'text-emerald-400' : ''
-                      }`}
+                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${getCallingAssistColor(caVal)}`}
                       value={caVal}
                       onChange={(e) => handleChange(lead, e.target.value as CallingAssistStatus | '')}
                       disabled={!selectedCall}
@@ -219,6 +210,7 @@ function BackendAssistView({ leads, calls, reports, uid }: {
               <th>Name</th>
               <th>Email</th>
               <th>Phone</th>
+              <th>Handler</th>
               <th>Calling Status</th>
               <th>Handler Status</th>
             </tr>
@@ -229,29 +221,21 @@ function BackendAssistView({ leads, calls, reports, uid }: {
               const rep = reportMap.get(key);
               const caVal = rep?.callingAssistReport ?? '';
               const handlerVal = rep?.handlerReport ?? '';
-              const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
               return (
                 <tr key={lead.id}>
                   <td className="text-slate-500">{lead.serialNumber}</td>
                   <td className="font-medium text-slate-200">{lead.name}</td>
                   <td className="text-slate-400 text-xs">{lead.email}</td>
                   <td className="text-slate-400">{lead.phone}</td>
+                  <td className="text-slate-400 whitespace-nowrap">{lead.handlerName ?? '—'}</td>
                   <td>
                     {caVal ? (
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
-                        isRedFlag
-                          ? 'text-red-400 bg-red-500/10 border-red-500/20'
-                          : 'text-sky-400 bg-sky-500/10 border-sky-500/20'
-                      }`}>{caVal}</span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${getCallingAssistBadge(caVal)}`}>{caVal}</span>
                     ) : <span className="text-slate-600">—</span>}
                   </td>
                   <td className="min-w-[180px]">
                     <select
-                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${
-                        handlerVal === "Don't Call Them" ? 'text-red-400' :
-                        handlerVal === 'Call Them' ? 'text-sky-400' :
-                        handlerVal ? 'text-emerald-400' : ''
-                      }`}
+                      className={`input-glass py-1.5 text-sm cursor-pointer font-medium ${getHandlerStatusColor(handlerVal)}`}
                       value={handlerVal}
                       onChange={(e) => handleChange(lead, e.target.value as HandlerStatus | '')}
                       disabled={!selectedCall}
@@ -433,6 +417,7 @@ function BackendManagerPage() {
   const { batches, loading: batchesLoading } = useBatches(selectedLevelId || null);
   const [appliedBatchId, setAppliedBatchId] = useState('');
   const [appliedBatch, setAppliedBatch] = useState<Batch | null>(null);
+  const [showOnlyMyData, setShowOnlyMyData] = useState(user?.role === 'backend_assist');
 
   // ── Live data for the applied batch ──
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -463,7 +448,7 @@ function BackendManagerPage() {
     setLoading(true);
 
     const leadsQ =
-      user?.role === 'backend_assist'
+      (user?.role === 'backend_assist' && showOnlyMyData)
         ? query(collection(db, 'leads'), where('batchId', '==', appliedBatchId), where('handlerId', '==', user.uid), orderBy('serialNumber', 'asc'))
         : query(collection(db, 'leads'), where('batchId', '==', appliedBatchId), orderBy('serialNumber', 'asc'));
 
@@ -490,7 +475,7 @@ function BackendManagerPage() {
     ];
 
     return () => unsubs.forEach((u) => u());
-  }, [appliedBatchId, user]);
+  }, [appliedBatchId, user, showOnlyMyData]);
 
   const selectedProgram = programs.find((p) => p.id === selectedProgramId);
   const selectedLevel = levels.find((l) => l.id === selectedLevelId);
@@ -549,7 +534,18 @@ function BackendManagerPage() {
               </span>
             </p>
           )}
-          <div className="flex gap-2 ml-auto">
+          <div className="flex gap-2 ml-auto items-center">
+            {user?.role === 'backend_assist' && appliedBatchId && (
+              <label className="flex items-center gap-2 cursor-pointer select-none rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-500/15 transition-all">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5 rounded border-white/10 bg-slate-950 text-indigo-400 cursor-pointer"
+                  checked={showOnlyMyData}
+                  onChange={(e) => setShowOnlyMyData(e.target.checked)}
+                />
+                My Assigned Data Only
+              </label>
+            )}
             {appliedBatchId && (
               <Button variant="secondary" size="sm" onClick={handleClear}>
                 <X size={14} /> Clear

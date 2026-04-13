@@ -10,7 +10,7 @@ import { useCallSessions } from '@/hooks/useCallSessions';
 import { useCallReports } from '@/hooks/useCallReports';
 import { Select } from '@/components/ui/Select';
 import { useFilter } from '@/contexts/FilterContext';
-import { formatDate, getCallSessionTypeLabel, sortCallSessions } from '@/lib/utils';
+import { formatDate, getCallSessionTypeLabel, sortCallSessions, getCallingAssistColor, getCallingAssistCardBg, getHandlerStatusColor, getHandlerCardBg } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type { CallSession, Lead, LeadCallReport } from '@/types';
 
@@ -112,8 +112,6 @@ function CallingAssistReport({
   leads: Lead[];
   reportMap: Map<string, LeadCallReport>;
 }) {
-  const RED_FLAGS = new Set(['Out Of Service-NR', 'Incoming Inactive-NR', "Won't Attend-NR"]);
-
   const rows = mainSessions.map((session) => {
     const values = leads
       .map((lead) => reportMap.get(`${lead.id}_${session.id}`)?.callingAssistReport ?? '')
@@ -139,9 +137,9 @@ function CallingAssistReport({
             {CALLING_ASSIST_OPTIONS.map((status) => (
               <div
                 key={status}
-                className={`rounded-xl p-3 border ${RED_FLAGS.has(status) ? 'bg-red-500/8 border-red-500/20' : 'bg-white/3 border-white/6'}`}
+                className={`rounded-xl p-3 border ${getCallingAssistCardBg(status)}`}
               >
-                <p className={`text-lg font-bold ${RED_FLAGS.has(status) ? 'text-red-400' : 'text-slate-200'}`}>
+                <p className={`text-lg font-bold ${getCallingAssistColor(status)}`}>
                   {counts[status] ?? 0}
                 </p>
                 <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{status}</p>
@@ -195,17 +193,9 @@ function HandlerReport({
             {HANDLER_OPTIONS.map((status) => (
               <div
                 key={status}
-                className={`rounded-xl p-3 border ${
-                  status === "Don't Call Them" ? 'bg-red-500/8 border-red-500/20' :
-                  status === 'Call Them' ? 'bg-sky-500/8 border-sky-500/20' :
-                  'bg-white/3 border-white/6'
-                }`}
+                className={`rounded-xl p-3 border ${getHandlerCardBg(status)}`}
               >
-                <p className={`text-lg font-bold ${
-                  status === "Don't Call Them" ? 'text-red-400' :
-                  status === 'Call Them' ? 'text-sky-400' :
-                  'text-slate-200'
-                }`}>
+                <p className={`text-lg font-bold ${getHandlerStatusColor(status)}`}>
                   {counts[status] ?? 0}
                 </p>
                 <p className="text-[10px] text-slate-500 mt-0.5 leading-tight">{status}</p>

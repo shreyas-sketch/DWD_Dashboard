@@ -31,6 +31,9 @@ import {
   getCallSessionGroupKey,
   getCallSessionTypeLabel,
   sortCallSessions,
+  getCallingAssistColor,
+  isCallingAssistRedFlag,
+  getHandlerStatusColor,
 } from '@/lib/utils';
 import { CALLING_ASSIST_OPTIONS, HANDLER_OPTIONS } from '@/types';
 import type {
@@ -1807,7 +1810,7 @@ function ZoomRegistrationForm({
 }
 
 // ─── Report Table ─────────────────────────────────────────────────────────────
-function ReportTab({ batchId }: { batchId: string }) {
+function ReportTab({ batchId, programId, levelId }: { batchId: string; programId: string; levelId: string }) {
   const { leads } = useLeads(batchId);
   const { calls } = useCallSessions(batchId);
   const { fields } = useCustomFields(batchId);
@@ -1816,7 +1819,48 @@ function ReportTab({ batchId }: { batchId: string }) {
   const [selectedCallGroup, setSelectedCallGroup] = useState<string>('all');
   const [showZoomModal, setShowZoomModal] = useState(false);
   const [zoomUnmatched, setZoomUnmatched] = useState<Array<{ name: string; email: string; phone: string }>>([]);
+  const [editingUnmatchedIdx, setEditingUnmatchedIdx] = useState<number | null>(null);
+  const [editingUnmatchedData, setEditingUnmatchedData] = useState<{ name: string; email: string; phone: string }>({ name: '', email: '', phone: '' });
   const callGroups = groupCallSessions(calls);
+
+  function handleRemoveUnmatched(idx: number) {
+    setZoomUnmatched((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function handleStartEditUnmatched(idx: number) {
+    setEditingUnmatchedIdx(idx);
+    setEditingUnmatchedData({ ...zoomUnmatched[idx] });
+  }
+
+  function handleSaveEditUnmatched() {
+    if (editingUnmatchedIdx === null) return;
+    setZoomUnmatched((prev) => prev.map((r, i) => i === editingUnmatchedIdx ? { ...editingUnmatchedData } : r));
+    setEditingUnmatchedIdx(null);
+  }
+
+  async function handleAddUnmatchedAsLead(idx: number) {
+    const entry = zoomUnmatched[idx];
+    if (!entry.name && !entry.email && !entry.phone) {
+      toast.error('Cannot add empty entry as lead');
+      return;
+    }
+    await createDocument<Omit<Lead, 'id'>>('leads', {
+      batchId,
+      programId,
+      levelId,
+      name: entry.name,
+      email: (entry.email || '').toLowerCase(),
+      phone: entry.phone,
+      handlerId: null,
+      handlerName: null,
+      serialNumber: leads.length + 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      source: 'manual',
+    });
+    toast.success('Lead added!');
+    handleRemoveUnmatched(idx);
+  }
 
   useEffect(() => {
     if (selectedCallGroup !== 'all' && !callGroups.some((group) => group.key === selectedCallGroup)) {
@@ -1827,12 +1871,6 @@ function ReportTab({ batchId }: { batchId: string }) {
   const displayGroups = selectedCallGroup === 'all'
     ? callGroups
     : callGroups.filter((group) => group.key === selectedCallGroup);
-
-  const CALLING_ASSIST_RED_FLAGS = new Set<string>([
-    'Out Of Service-NR',
-    'Incoming Inactive-NR',
-    "Won't Attend-NR",
-  ]);
 
   function handleExportReport() {
     const rows = leads.map((lead) => {
@@ -1876,7 +1914,7 @@ function ReportTab({ batchId }: { batchId: string }) {
 
     if (field === 'callingAssistReport') {
       const autoHandler = value
-        ? CALLING_ASSIST_RED_FLAGS.has(value)
+        ? isCallingAssistRedFlag(value)
           ? "Don't Call Them"
           : 'Call Them'
         : null;
@@ -1910,7 +1948,7 @@ function ReportTab({ batchId }: { batchId: string }) {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <h3 className="font-semibold text-slate-200">Report Table</h3>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
-          {(user?.role === 'admin' || user?.role === 'backend_manager') && (
+          {(user?.role === 'admin' || user?.role === 'backend_manager' || user?.role === 'backend_assist') && (
             <>
               <Button size="sm" variant="secondary" onClick={() => setShowZoomModal(true)}>
                 <Upload size={14} /> Zoom Registration
@@ -2034,8 +2072,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                       {/* Calling assist — main calls only */}
                       {!isDoubt && (() => {
                         const caVal = rep?.callingAssistReport ?? '';
-                        const isRedFlag = CALLING_ASSIST_RED_FLAGS.has(caVal);
-                        const caColor = isRedFlag ? 'text-red-400' : caVal ? 'text-slate-200' : 'text-slate-400';
+                        const caColor = getCallingAssistColor(caVal);
                         return (
                           <td className="min-w-[160px]">
                             {canCallingAssist ? (
@@ -2049,7 +2086,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                                   <option
                                     key={o}
                                     value={o}
-                                    className={CALLING_ASSIST_RED_FLAGS.has(o) ? 'text-red-400' : ''}
+                                    className={isCallingAssistRedFlag(o) ? 'text-red-400' : ''}
                                   >
                                     {o}
                                   </option>
@@ -2064,11 +2101,7 @@ function ReportTab({ batchId }: { batchId: string }) {
                       {/* Handler */}
                       {(() => {
                         const hVal = rep?.handlerReport ?? '';
-                        const hColor = hVal === "Don't Call Them"
-                          ? 'text-red-400'
-                          : hVal === 'Call Them'
-                          ? 'text-sky-400'
-                          : 'text-slate-400';
+                        const hColor = getHandlerStatusColor(hVal);
                         return (
                           <td className={isDoubt ? 'border-l border-white/6 min-w-[150px]' : 'min-w-[150px]'}>
                             {canHandler ? (
@@ -2082,7 +2115,6 @@ function ReportTab({ batchId }: { batchId: string }) {
                                   <option
                                     key={o}
                                     value={o}
-                                    className={o === "Don't Call Them" ? 'text-red-400' : o === 'Call Them' ? 'text-sky-400' : ''}
                                   >
                                     {o}
                                   </option>
@@ -2175,15 +2207,45 @@ function ReportTab({ batchId }: { batchId: string }) {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Phone</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {zoomUnmatched.map((r, i) => (
                   <tr key={i}>
                     <td className="text-slate-500">{i + 1}</td>
-                    <td className="font-medium text-slate-200">{r.name || '—'}</td>
-                    <td className="text-slate-400">{r.email || '—'}</td>
-                    <td className="text-slate-400">{r.phone || '—'}</td>
+                    {editingUnmatchedIdx === i ? (
+                      <>
+                        <td><input className="input-glass py-1 text-xs w-full" value={editingUnmatchedData.name} onChange={(e) => setEditingUnmatchedData((d) => ({ ...d, name: e.target.value }))} /></td>
+                        <td><input className="input-glass py-1 text-xs w-full" value={editingUnmatchedData.email} onChange={(e) => setEditingUnmatchedData((d) => ({ ...d, email: e.target.value }))} /></td>
+                        <td><input className="input-glass py-1 text-xs w-full" value={editingUnmatchedData.phone} onChange={(e) => setEditingUnmatchedData((d) => ({ ...d, phone: e.target.value }))} /></td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button onClick={handleSaveEditUnmatched} className="p-1 text-emerald-400 hover:text-emerald-300 transition-colors" title="Save">✓</button>
+                            <button onClick={() => setEditingUnmatchedIdx(null)} className="p-1 text-slate-500 hover:text-slate-300 transition-colors" title="Cancel">✕</button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="font-medium text-slate-200">{r.name || '—'}</td>
+                        <td className="text-slate-400">{r.email || '—'}</td>
+                        <td className="text-slate-400">{r.phone || '—'}</td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => handleAddUnmatchedAsLead(i)} className="p-1.5 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors" title="Add as Lead">
+                              <Plus size={13} />
+                            </button>
+                            <button onClick={() => handleStartEditUnmatched(i)} className="p-1.5 text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 rounded-lg transition-colors" title="Edit">
+                              <Pencil size={13} />
+                            </button>
+                            <button onClick={() => handleRemoveUnmatched(i)} className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-colors" title="Remove">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -2372,7 +2434,7 @@ export default function BatchDetailPage() {
         {tab === 'leads' && <LeadsTab batchId={batchId} programId={programId} levelId={levelId} levelName={level?.name ?? ''} />}
         {tab === 'calls' && <CallsTab batchId={batchId} programId={programId} levelId={levelId} />}
         {tab === 'fields' && <FieldsTab batchId={batchId} />}
-        {tab === 'report' && <ReportTab batchId={batchId} />}
+        {tab === 'report' && <ReportTab batchId={batchId} programId={programId} levelId={levelId} />}
         {tab === 'assign' && <AssignTab batchId={batchId} assignedIds={batch?.assignedCallingAssistIds ?? []} />}
       </div>
     </div>
