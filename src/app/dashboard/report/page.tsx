@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { BarChart2, TrendingUp, Trophy, Phone, Users, ClipboardList } from 'lucide-react';
+import { BarChart2, TrendingUp, Trophy, Phone, Users, ClipboardList, Calendar, Hash } from 'lucide-react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useLevels } from '@/hooks/useLevels';
 import { useBatches } from '@/hooks/useBatches';
@@ -287,6 +287,130 @@ function FunnelReport({ leads, levelId, levelName }: { leads: Lead[]; levelId: s
   );
 }
 
+// ─── Day-Wise Summary ─────────────────────────────────────────────────────────
+function DayWiseSummary({
+  sortedCalls,
+  leads,
+  reportMap,
+}: {
+  sortedCalls: CallSession[];
+  leads: Lead[];
+  reportMap: Map<string, LeadCallReport>;
+}) {
+  // Group sessions by date
+  const dateGroups = useMemo(() => {
+    const groups = new Map<string, CallSession[]>();
+    sortedCalls.forEach((session) => {
+      const date = session.date;
+      if (!groups.has(date)) groups.set(date, []);
+      groups.get(date)!.push(session);
+    });
+    return groups;
+  }, [sortedCalls]);
+
+  const dailyStats = useMemo(() => {
+    return Array.from(dateGroups.entries()).map(([date, sessions]) => {
+      let registered = 0;
+      let notRegistered = 0;
+      let joined = 0;
+      let nr = 0;
+      let totalReports = 0;
+
+      sessions.forEach((session) => {
+        leads.forEach((lead) => {
+          const rep = reportMap.get(`${lead.id}_${session.id}`);
+          if (!rep) return;
+          totalReports++;
+
+          // Registration
+          if (rep.registrationReport === 'Registered') registered++;
+          else if (rep.registrationReport === 'Not Registered') notRegistered++;
+
+          // Joined
+          if (rep.handlerReport === 'JOINED') joined++;
+
+          // NR (Not Reachable) — from calling assist or handler statuses ending with NR
+          const callingStatus = rep.callingAssistReport || '';
+          const handlerStatus = rep.handlerReport || '';
+          if (callingStatus.endsWith('-NR') || handlerStatus === 'Not Active') nr++;
+        });
+      });
+
+      return { date, sessions, registered, notRegistered, joined, nr, totalReports };
+    });
+  }, [dateGroups, leads, reportMap]);
+
+  if (dailyStats.length === 0) return null;
+
+  // Totals
+  const totals = dailyStats.reduce(
+    (acc, d) => ({
+      registered: acc.registered + d.registered,
+      notRegistered: acc.notRegistered + d.notRegistered,
+      joined: acc.joined + d.joined,
+      nr: acc.nr + d.nr,
+    }),
+    { registered: 0, notRegistered: 0, joined: 0, nr: 0 },
+  );
+
+  return (
+    <div className="glass-card p-5 mb-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Calendar size={16} className="text-indigo-400" />
+        <h3 className="text-sm font-semibold text-slate-200">Day-Wise Summary</h3>
+      </div>
+
+      {/* Overall Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div className="rounded-xl p-3 border bg-emerald-500/8 border-emerald-500/15">
+          <p className="text-2xl font-bold text-emerald-400">{totals.registered}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Total Registered</p>
+        </div>
+        <div className="rounded-xl p-3 border bg-indigo-500/8 border-indigo-500/15">
+          <p className="text-2xl font-bold text-indigo-400">{totals.joined}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Total Joined</p>
+        </div>
+        <div className="rounded-xl p-3 border bg-red-500/8 border-red-500/15">
+          <p className="text-2xl font-bold text-red-400">{totals.nr}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Total NR</p>
+        </div>
+        <div className="rounded-xl p-3 border bg-amber-500/8 border-amber-500/15">
+          <p className="text-2xl font-bold text-amber-400">{totals.notRegistered}</p>
+          <p className="text-xs text-slate-500 mt-0.5">Total Not Registered</p>
+        </div>
+      </div>
+
+      {/* Day-Wise Breakdown Table */}
+      <div className="overflow-x-auto rounded-xl border border-white/8">
+        <table className="table-glass text-xs w-full">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Sessions</th>
+              <th className="text-emerald-400">Registered</th>
+              <th className="text-indigo-400">Joined</th>
+              <th className="text-red-400">NR</th>
+              <th className="text-amber-400">Not Registered</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dailyStats.map(({ date, sessions, registered, joined, nr, notRegistered }) => (
+              <tr key={date}>
+                <td className="font-medium text-slate-200">{formatDate(date)}</td>
+                <td className="text-slate-400">{sessions.length}</td>
+                <td><span className="font-semibold text-emerald-400">{registered}</span></td>
+                <td><span className="font-semibold text-indigo-400">{joined}</span></td>
+                <td><span className="font-semibold text-red-400">{nr}</span></td>
+                <td><span className="font-semibold text-amber-400">{notRegistered}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Empty state ──────────────────────────────────────────────────────────────
 function EmptyState({ label }: { label: string }) {
   return (
@@ -404,6 +528,9 @@ export default function ReportPage() {
               <p className="text-sm font-semibold text-slate-300">{mainSessions.length}</p>
             </div>
           </div>
+
+          {/* Day-Wise Summary */}
+          <DayWiseSummary sortedCalls={sortedCalls} leads={leads} reportMap={reportMap} />
 
           {/* Report type tabs */}
           <div className="flex gap-1 mb-5 border-b border-white/8 overflow-x-auto">
