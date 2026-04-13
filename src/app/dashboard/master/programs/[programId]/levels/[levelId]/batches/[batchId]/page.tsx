@@ -7,9 +7,9 @@ import toast from 'react-hot-toast';
 import {
   Plus, Upload, Phone, Users, Settings2, Trash2, Pencil,
   ChevronLeft, RefreshCw, Download, ChevronRight, AlertTriangle,
-  TrendingUp, Trophy, ClipboardList, UserCheck, UserX,
+  TrendingUp, Trophy, ClipboardList, UserCheck, UserX, ChevronsUp,
 } from 'lucide-react';
-import { doc, getDoc, collection, writeBatch, arrayUnion, arrayRemove, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, collection, writeBatch, arrayUnion, arrayRemove, updateDoc, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import Papa from 'papaparse';
 import { useLeads } from '@/hooks/useLeads';
@@ -18,6 +18,8 @@ import { useCallTemplates } from '@/hooks/useCallTemplates';
 import { useCustomFields } from '@/hooks/useCustomFields';
 import { useCallReports } from '@/hooks/useCallReports';
 import { useUsers } from '@/hooks/useUsers';
+import { useLevels } from '@/hooks/useLevels';
+import { useBatches } from '@/hooks/useBatches';
 import { useAuth } from '@/contexts/AuthContext';
 import { createDocument, updateDocument, deleteDocument, batchWrite } from '@/lib/firestore';
 import { Modal } from '@/components/ui/Modal';
@@ -873,6 +875,7 @@ function LeadsTab({
   const { user } = useAuth();
   const [showImport, setShowImport] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [promotingLead, setPromotingLead] = useState<Lead | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const assistantOptions = assistants.map((a) => ({ value: a.uid, label: a.displayName }));
@@ -1244,6 +1247,13 @@ function LeadsTab({
                     <td>
                       <div className="flex items-center gap-1">
                         <button
+                          onClick={() => setPromotingLead(lead)}
+                          className="p-1.5 text-slate-500 hover:text-emerald-400 transition-colors rounded-lg hover:bg-emerald-500/10"
+                          title="Promote / demote to another level"
+                        >
+                          <ChevronsUp size={13} />
+                        </button>
+                        <button
                           onClick={() => setEditingLead(lead)}
                           className="p-1.5 text-slate-500 hover:text-indigo-400 transition-colors rounded-lg hover:bg-indigo-500/10"
                         >
@@ -1281,6 +1291,17 @@ function LeadsTab({
             onSave={handleEditLead}
             assistants={assistantOptions}
             onClose={() => setEditingLead(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal open={!!promotingLead} onClose={() => setPromotingLead(null)} title="Promote / Demote Lead" solid>
+        {promotingLead && (
+          <PromoteLeadModal
+            lead={promotingLead}
+            programId={programId}
+            currentLevelId={levelId}
+            onClose={() => setPromotingLead(null)}
           />
         )}
       </Modal>
@@ -2350,6 +2371,347 @@ function AssignTab({ batchId, assignedIds }: { batchId: string; assignedIds: str
   );
 }
 
+// ─── Promote Batch Modal ──────────────────────────────────────────────────────
+function PromoteBatchModal({
+  batchId,
+  programId,
+  levelId,
+  levelName,
+  onClose,
+}: {
+  batchId: string;
+  programId: string;
+  levelId: string;
+  levelName: string;
+  onClose: () => void;
+}) {
+  const { user } = useAuth();
+  const { leads } = useLeads(batchId);
+  const { levels } = useLevels(programId);
+  const [targetLevelId, setTargetLevelId] = useState('');
+  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [targetBatchId, setTargetBatchId] = useState('');
+  const [newBatchName, setNewBatchName] = useState('');
+  const [newBatchNumber, setNewBatchNumber] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { batches: targetBatches } = useBatches(targetLevelId || null);
+
+  const otherLevels = levels.filter((l) => l.id !== levelId);
+  const targetLevelName = levels.find((l) => l.id === targetLevelId)?.name ?? '';
+
+  const eligibleLeads = leads.filter((l) =>
+    l.tags?.some((t) => t.levelId === levelId && (t.type === 'deposit' || t.type === 'won')),
+  );
+
+  async function handleConfirm() {
+    if (!targetLevelId) { toast.error('Select a target level'); return; }
+    if (mode === 'existing' && !targetBatchId) { toast.error('Select a target batch'); return; }
+    if (mode === 'new' && !newBatchNumber.trim()) { toast.error('Enter a batch number'); return; }
+    if (eligibleLeads.length === 0) { toast.error('No eligible leads to promote'); return; }
+
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+      let resolvedBatchId: string;
+      let existingLeadsCount = 0;
+
+      const wb = writeBatch(db);
+
+      if (mode === 'new') {
+        const batchRef = doc(collection(db, 'batches'));
+        resolvedBatchId = batchRef.id;
+        wb.set(batchRef, {
+          programId,
+          levelId: targetLevelId,
+          batchNumber: newBatchNumber.trim(),
+          batchName: newBatchName.trim(),
+          startDate: '',
+          endDate: '',
+          remarks: `Promoted from ${levelName}`,
+          assignedCallingAssistIds: [],
+          createdAt: now,
+          updatedAt: now,
+          createdBy: user!.uid,
+        });
+      } else {
+        resolvedBatchId = targetBatchId;
+        const snap = await getDocs(query(collection(db, 'leads'), where('batchId', '==', resolvedBatchId)));
+        existingLeadsCount = snap.size;
+      }
+
+      eligibleLeads.forEach((lead, idx) => {
+        const ref = doc(collection(db, 'leads'));
+        wb.set(ref, {
+          batchId: resolvedBatchId,
+          programId,
+          levelId: targetLevelId,
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          handlerId: null,
+          handlerName: null,
+          serialNumber: existingLeadsCount + idx + 1,
+          source: 'manual' as const,
+          tags: lead.tags ?? [],
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+
+      await wb.commit();
+      toast.success(`${eligibleLeads.length} lead${eligibleLeads.length !== 1 ? 's' : ''} promoted to ${targetLevelName}!`);
+      onClose();
+    } catch (err) {
+      toast.error('Failed to promote batch');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Eligible count banner */}
+      <div className={`p-4 rounded-xl border ${eligibleLeads.length > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+        <p className={`text-sm font-semibold ${eligibleLeads.length > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+          {leads.length === 0 ? 'Loading leads…' : `${eligibleLeads.length} lead${eligibleLeads.length !== 1 ? 's' : ''} eligible for promotion`}
+        </p>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Only leads tagged <span className="text-amber-400">Deposit</span> or <span className="text-emerald-400">Won</span> in <span className="text-slate-300">{levelName}</span> will be copied.
+        </p>
+      </div>
+
+      {eligibleLeads.length === 0 && leads.length > 0 ? (
+        <div className="text-center py-4 flex flex-col items-center gap-3">
+          <p className="text-slate-500 text-sm">No eligible leads. Add <strong className="text-amber-400">Deposit</strong> or <strong className="text-emerald-400">Won</strong> tags to leads in the Leads tab first.</p>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      ) : otherLevels.length === 0 ? (
+        <div className="text-center py-4 flex flex-col items-center gap-3">
+          <p className="text-slate-500 text-sm">No other levels in this program. Create another level first.</p>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+      ) : (
+        <>
+          <Select
+            label="Target Level"
+            value={targetLevelId}
+            onChange={(e) => { setTargetLevelId(e.target.value); setTargetBatchId(''); setMode('existing'); }}
+            placeholder="— Select level —"
+            options={otherLevels.map((l) => ({ value: l.id, label: l.name }))}
+          />
+
+          {targetLevelId && (
+            <>
+              {/* Mode toggle */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMode('existing')}
+                  className={`flex-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${mode === 'existing' ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300' : 'border-white/8 bg-white/3 text-slate-400 hover:text-slate-200'}`}
+                >
+                  Existing Batch
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('new')}
+                  className={`flex-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${mode === 'new' ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300' : 'border-white/8 bg-white/3 text-slate-400 hover:text-slate-200'}`}
+                >
+                  Create New Batch
+                </button>
+              </div>
+
+              {mode === 'existing' ? (
+                <Select
+                  label="Target Batch"
+                  value={targetBatchId}
+                  onChange={(e) => setTargetBatchId(e.target.value)}
+                  placeholder={targetBatches.length === 0 ? '— No batches in this level —' : '— Select batch —'}
+                  options={targetBatches.map((b) => ({ value: b.id, label: b.batchName ? `${b.batchName} (#${b.batchNumber})` : `Batch ${b.batchNumber}` }))}
+                  disabled={targetBatches.length === 0}
+                />
+              ) : (
+                <div className="space-y-3">
+                  <Input label="Batch Number" placeholder="e.g. 001" value={newBatchNumber} onChange={(e) => setNewBatchNumber(e.target.value)} />
+                  <Input label="Batch Name (optional)" placeholder="e.g. Promoted Batch A" value={newBatchName} onChange={(e) => setNewBatchName(e.target.value)} />
+                </div>
+              )}
+
+              {/* Eligible leads list */}
+              {eligibleLeads.length > 0 && (
+                <div className="rounded-xl border border-white/8 bg-white/3 overflow-hidden">
+                  <p className="px-3 py-2 text-xs font-medium text-slate-400 border-b border-white/8">
+                    Will be promoted ({eligibleLeads.length})
+                  </p>
+                  <div className="divide-y divide-white/5 max-h-[180px] overflow-y-auto">
+                    {eligibleLeads.map((l) => (
+                      <div key={l.id} className="px-3 py-2 flex items-center gap-3 text-xs">
+                        <span className="font-medium text-slate-200 flex-1 truncate">{l.name}</span>
+                        <div className="flex gap-1 flex-shrink-0">
+                          {l.tags?.filter((t) => t.levelId === levelId).map((t, i) => (
+                            <span key={i} className={`px-1.5 py-0.5 rounded-md font-medium text-[10px] ${t.type === 'won' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                              {t.type === 'won' ? 'Won' : 'Deposit'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <Button
+              className="flex-1"
+              onClick={handleConfirm}
+              loading={loading}
+              disabled={!targetLevelId || (mode === 'existing' && !targetBatchId) || (mode === 'new' && !newBatchNumber.trim()) || eligibleLeads.length === 0}
+            >
+              <ChevronsUp size={14} /> Promote {eligibleLeads.length > 0 ? `${eligibleLeads.length} Lead${eligibleLeads.length !== 1 ? 's' : ''}` : 'Batch'}
+            </Button>
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Promote / Demote Lead Modal ──────────────────────────────────────────────
+function PromoteLeadModal({
+  lead,
+  programId,
+  currentLevelId,
+  onClose,
+}: {
+  lead: Lead;
+  programId: string;
+  currentLevelId: string;
+  onClose: () => void;
+}) {
+  const { levels } = useLevels(programId);
+  const [targetLevelId, setTargetLevelId] = useState('');
+  const [targetBatchId, setTargetBatchId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { batches: targetBatches } = useBatches(targetLevelId || null);
+
+  const otherLevels = levels.filter((l) => l.id !== currentLevelId);
+  const currentLevel = levels.find((l) => l.id === currentLevelId);
+  const targetLevel = levels.find((l) => l.id === targetLevelId);
+
+  // Determine if promoting (higher order) or demoting (lower order)
+  const direction = targetLevel
+    ? targetLevel.order > (currentLevel?.order ?? 0) ? 'promote' : 'demote'
+    : null;
+
+  async function handleConfirm() {
+    if (!targetLevelId || !targetBatchId) { toast.error('Select a target level and batch'); return; }
+    setLoading(true);
+    try {
+      const snap = await getDocs(query(collection(db, 'leads'), where('batchId', '==', targetBatchId)));
+      const existingCount = snap.size;
+
+      const wb = writeBatch(db);
+      const ref = doc(collection(db, 'leads'));
+      wb.set(ref, {
+        batchId: targetBatchId,
+        programId,
+        levelId: targetLevelId,
+        name: lead.name,
+        email: lead.email,
+        phone: lead.phone,
+        handlerId: null,
+        handlerName: null,
+        serialNumber: existingCount + 1,
+        source: 'manual' as const,
+        tags: lead.tags ?? [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      await wb.commit();
+
+      const targetBatch = targetBatches.find((b) => b.id === targetBatchId);
+      const targetBatchLabel = targetBatch?.batchName || `Batch ${targetBatch?.batchNumber}`;
+      toast.success(`${lead.name} ${direction === 'demote' ? 'demoted' : 'promoted'} to ${targetLevel?.name} → ${targetBatchLabel}`);
+      onClose();
+    } catch (err) {
+      toast.error('Failed to move lead');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Lead info card */}
+      <div className="flex items-center gap-3 p-3 rounded-xl border border-white/8 bg-white/3">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+          {lead.name.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-slate-200 truncate">{lead.name}</p>
+          <p className="text-xs text-slate-500 truncate">{lead.email || lead.phone}</p>
+        </div>
+        {lead.tags && lead.tags.length > 0 && (
+          <div className="flex gap-1 flex-shrink-0">
+            {lead.tags.map((t, i) => (
+              <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium ${t.type === 'won' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400'}`}>
+                {t.type === 'won' ? 'Won' : 'Deposit'}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-slate-500">
+        The lead will be <span className="text-slate-300">copied</span> to the selected level and batch. The original record remains unchanged.
+      </p>
+
+      {otherLevels.length === 0 ? (
+        <div className="text-center py-4">
+          <p className="text-slate-500 text-sm">No other levels in this program.</p>
+        </div>
+      ) : (
+        <>
+          <Select
+            label="Target Level"
+            value={targetLevelId}
+            onChange={(e) => { setTargetLevelId(e.target.value); setTargetBatchId(''); }}
+            placeholder="— Select level —"
+            options={otherLevels.map((l) => ({ value: l.id, label: l.name }))}
+          />
+
+          {targetLevelId && (
+            <Select
+              label="Target Batch"
+              value={targetBatchId}
+              onChange={(e) => setTargetBatchId(e.target.value)}
+              placeholder={targetBatches.length === 0 ? '— No batches in this level —' : '— Select batch —'}
+              options={targetBatches.map((b) => ({ value: b.id, label: b.batchName ? `${b.batchName} (#${b.batchNumber})` : `Batch ${b.batchNumber}` }))}
+              disabled={targetBatches.length === 0}
+            />
+          )}
+        </>
+      )}
+
+      <div className="flex gap-3 pt-1">
+        <Button
+          className="flex-1"
+          onClick={handleConfirm}
+          loading={loading}
+          disabled={!targetLevelId || !targetBatchId}
+        >
+          <ChevronsUp size={14} className={direction === 'demote' ? 'rotate-180' : ''} />
+          {direction === 'demote' ? 'Demote Lead' : 'Promote Lead'}
+        </Button>
+        <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
 // ─── Main Batch Page ─────────────────────────────────────────────────────────
 export default function BatchDetailPage() {
   const { programId, levelId, batchId } = useParams<{ programId: string; levelId: string; batchId: string }>();
@@ -2378,6 +2740,8 @@ export default function BatchDetailPage() {
 
   const { user: authUser } = useAuth();
   const canAssign = authUser?.role === 'admin' || authUser?.role === 'backend_manager' || authUser?.role === 'backend_assist';
+  const canPromoteBatch = authUser?.role === 'admin' || authUser?.role === 'backend_manager';
+  const [showPromoteBatch, setShowPromoteBatch] = useState(false);
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'calls', label: 'Calls' },
@@ -2406,12 +2770,21 @@ export default function BatchDetailPage() {
         <span className="text-slate-300">Batch {batch?.batchNumber ?? '…'}</span>
       </div>
 
-      <h1 className="text-2xl font-bold gradient-text mb-1">
-        {batch?.batchName || `Batch ${batch?.batchNumber ?? ''}`}
-      </h1>
-      <p className="text-slate-500 text-sm mb-6">
-        {program?.name} → {level?.name}
-      </p>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold gradient-text mb-1">
+            {batch?.batchName || `Batch ${batch?.batchNumber ?? ''}`}
+          </h1>
+          <p className="text-slate-500 text-sm">
+            {program?.name} → {level?.name}
+          </p>
+        </div>
+        {canPromoteBatch && batch && (
+          <Button size="sm" variant="secondary" onClick={() => setShowPromoteBatch(true)}>
+            <ChevronsUp size={14} /> Promote Batch
+          </Button>
+        )}
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-white/8 overflow-x-auto">
@@ -2437,6 +2810,17 @@ export default function BatchDetailPage() {
         {tab === 'report' && <ReportTab batchId={batchId} programId={programId} levelId={levelId} />}
         {tab === 'assign' && <AssignTab batchId={batchId} assignedIds={batch?.assignedCallingAssistIds ?? []} />}
       </div>
+
+      {/* Promote Batch Modal */}
+      <Modal open={showPromoteBatch} onClose={() => setShowPromoteBatch(false)} title="Promote Batch to Another Level" size="md" solid>
+        <PromoteBatchModal
+          batchId={batchId}
+          programId={programId}
+          levelId={levelId}
+          levelName={level?.name ?? ''}
+          onClose={() => setShowPromoteBatch(false)}
+        />
+      </Modal>
     </div>
   );
 }
