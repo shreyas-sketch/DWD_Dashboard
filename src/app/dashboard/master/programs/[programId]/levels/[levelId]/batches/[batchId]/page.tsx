@@ -471,57 +471,53 @@ function LeadsTab({
     toast.success('Leads distributed!');
   }
 
-  async function handleCSV(file: File) {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: async (results) => {
-        const rows = results.data as Record<string, string>[];
-        const batch = writeBatch(db);
-        const existingKeys = new Set(
-          leads
-            .map((l) => getUniqueLeadKey(l.email ?? '', l.phone ?? ''))
-            .filter(Boolean),
-        );
-        let addedCount = 0;
+  async function handleCSVImport(
+    rows: Record<string, string>[],
+    mapping: { name: string; email: string; phone: string },
+  ) {
+    const batch = writeBatch(db);
+    const existingKeys = new Set(
+      leads
+        .map((l) => getUniqueLeadKey(l.email ?? '', l.phone ?? ''))
+        .filter(Boolean),
+    );
+    let addedCount = 0;
 
-        rows.forEach((row) => {
-          const name = row['name'] || row['Name'] || '';
-          const email = row['email'] || row['Email'] || '';
-          const phone = row['phone'] || row['Phone'] || row['phone_number'] || '';
-          if (!name && !email && !phone) return;
+    rows.forEach((row) => {
+      const name = (mapping.name ? (row[mapping.name] ?? '') : '').trim();
+      const email = (mapping.email ? (row[mapping.email] ?? '') : '').trim();
+      const phone = (mapping.phone ? (row[mapping.phone] ?? '') : '').trim();
 
-          const uniqueKey = getUniqueLeadKey(email, phone);
-          if (uniqueKey && existingKeys.has(uniqueKey)) return;
+      if (!name && !email && !phone) return;
 
-          const ref = doc(collection(db, 'leads'));
-          batch.set(ref, {
-            batchId, programId, levelId,
-            name: name.trim(),
-            email: email.trim().toLowerCase(),
-            phone: phone.trim(),
-            handlerId: null,
-            handlerName: null,
-            serialNumber: leads.length + addedCount + 1,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            source: 'import',
-          });
-          if (uniqueKey) existingKeys.add(uniqueKey);
-          addedCount += 1;
-        });
+      const uniqueKey = getUniqueLeadKey(email, phone);
+      if (uniqueKey && existingKeys.has(uniqueKey)) return;
 
-        if (addedCount === 0) {
-          toast.error('No new leads were imported (duplicates skipped)');
-          return;
-        }
-
-        await batch.commit();
-        toast.success(`Imported ${addedCount} leads`);
-        setShowImport(false);
-      },
-      error: () => toast.error('CSV parse error'),
+      const ref = doc(collection(db, 'leads'));
+      batch.set(ref, {
+        batchId, programId, levelId,
+        name,
+        email: email.toLowerCase(),
+        phone,
+        handlerId: null,
+        handlerName: null,
+        serialNumber: leads.length + addedCount + 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        source: 'import',
+      });
+      if (uniqueKey) existingKeys.add(uniqueKey);
+      addedCount += 1;
     });
+
+    if (addedCount === 0) {
+      toast.error('No new leads found — all rows already exist or have no data in mapped columns');
+      return;
+    }
+
+    await batch.commit();
+    toast.success(`Imported ${addedCount} leads`);
+    setShowImport(false);
   }
 
   async function handleAddSingle(name: string, email: string, phone: string, handlerId: string | null) {
@@ -681,9 +677,9 @@ function LeadsTab({
         </div>
       )}
 
-      <Modal open={showImport} onClose={() => setShowImport(false)} title="Add Leads" size="md" solid>
+      <Modal open={showImport} onClose={() => setShowImport(false)} title="Add Leads" size="lg" solid>
         <LeadImportForm
-          onCSV={handleCSV}
+          onCSVImport={handleCSVImport}
           onManual={handleAddSingle}
           assistants={assistantOptions}
           onClose={() => setShowImport(false)}
@@ -750,20 +746,59 @@ function LeadEditForm({
 }
 
 function LeadImportForm({
-  onCSV, onManual, assistants, onClose,
+  onCSVImport, onManual, assistants, onClose,
 }: {
-  onCSV: (file: File) => Promise<void>;
+  onCSVImport: (rows: Record<string, string>[], mapping: { name: string; email: string; phone: string }) => Promise<void>;
   onManual: (name: string, email: string, phone: string, handlerId: string | null) => Promise<void>;
   assistants: { value: string; label: string }[];
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<'manual' | 'csv'>('manual');
+  // Manual form state
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [handlerId, setHandlerId] = useState('');
+  // CSV state
+  const [csvStep, setCsvStep] = useState<'upload' | 'mapping'>('upload');
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvMapping, setCsvMapping] = useState<{ name: string; email: string; phone: string }>({ name: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  function autoDetect(headers: string[]) {
+    const find = (patterns: RegExp[]) => headers.find((h) => patterns.some((p) => p.test(h.trim()))) ?? '';
+    return {
+      name: find([/^name$/i, /^full.?name$/i, /^student.?name$/i, /^lead.?name$/i]),
+      email: find([/^email$/i, /^e.?mail$/i, /^email.?address$/i]),
+      phone: find([/^phone$/i, /^phone.?number$/i, /^mobile$/i, /^mobile.?number$/i, /^contact$/i, /^number$/i]),
+    };
+  }
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as Record<string, string>[];
+        const headers = (results.meta.fields ?? []) as string[];
+        setCsvRows(rows);
+        setCsvHeaders(headers);
+        setCsvMapping(autoDetect(headers));
+        setCsvStep('mapping');
+        setLoading(false);
+      },
+      error: () => {
+        toast.error('Could not parse CSV');
+        setLoading(false);
+      },
+    });
+    e.target.value = '';
+  }
 
   async function handleManual(e: React.FormEvent) {
     e.preventDefault();
@@ -773,14 +808,88 @@ function LeadImportForm({
     finally { setLoading(false); }
   }
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handleImport() {
+    if (!csvMapping.name && !csvMapping.email && !csvMapping.phone) {
+      toast.error('Map at least one column (name, email, or phone) to import');
+      return;
+    }
     setLoading(true);
-    try { await onCSV(file); }
+    try { await onCSVImport(csvRows, csvMapping); }
     finally { setLoading(false); }
   }
 
+  const mappingOptions = [{ value: '', label: '— Not mapped —' }, ...csvHeaders.map((h) => ({ value: h, label: h }))];
+  const extraHeaders = csvHeaders.filter((h) => h !== csvMapping.name && h !== csvMapping.email && h !== csvMapping.phone);
+
+  // ── CSV mapping step ────────────────────────────────────────────────────────
+  if (mode === 'csv' && csvStep === 'mapping') {
+    return (
+      <div className="space-y-4">
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-sm text-slate-300">
+          <span className="text-emerald-400 font-semibold">{csvRows.length} rows</span> detected in CSV.
+          {' '}Map each column to the correct lead field below.
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Select
+            label="Name column"
+            value={csvMapping.name}
+            onChange={(e) => setCsvMapping((prev) => ({ ...prev, name: e.target.value }))}
+            options={mappingOptions}
+          />
+          <Select
+            label="Email column"
+            value={csvMapping.email}
+            onChange={(e) => setCsvMapping((prev) => ({ ...prev, email: e.target.value }))}
+            options={mappingOptions}
+          />
+          <Select
+            label="Phone column"
+            value={csvMapping.phone}
+            onChange={(e) => setCsvMapping((prev) => ({ ...prev, phone: e.target.value }))}
+            options={mappingOptions}
+          />
+        </div>
+
+        {extraHeaders.length > 0 && (
+          <div className="p-3 rounded-xl bg-white/3 border border-white/8 text-xs text-slate-500">
+            <p className="font-medium text-slate-400 mb-1">Extra columns (will be ignored):</p>
+            <p className="flex flex-wrap gap-1">
+              {extraHeaders.map((h) => (
+                <span key={h} className="px-2 py-0.5 rounded-md bg-white/5 border border-white/8">{h}</span>
+              ))}
+            </p>
+          </div>
+        )}
+
+        {csvRows.length > 0 && (csvMapping.name || csvMapping.email || csvMapping.phone) && (
+          <div className="rounded-xl bg-white/3 border border-white/8 overflow-hidden text-xs">
+            <p className="px-3 py-2 font-medium text-slate-400 border-b border-white/8">Preview (first 3 rows)</p>
+            <div className="divide-y divide-white/5">
+              {csvRows.slice(0, 3).map((row, i) => (
+                <div key={i} className="px-3 py-2 flex gap-4 text-slate-500">
+                  {csvMapping.name && <span className="text-slate-300 font-medium">{row[csvMapping.name]}</span>}
+                  {csvMapping.email && <span>{row[csvMapping.email]}</span>}
+                  {csvMapping.phone && <span>{row[csvMapping.phone]}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <Button className="flex-1" onClick={handleImport} loading={loading}>
+            Import {csvRows.length} Leads
+          </Button>
+          <Button variant="secondary" onClick={() => { setCsvStep('upload'); setCsvRows([]); setCsvHeaders([]); }}>
+            Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Default view (manual / csv upload) ─────────────────────────────────────
   return (
     <div>
       <div className="flex gap-2 mb-5">
@@ -812,7 +921,7 @@ function LeadImportForm({
       ) : (
         <div className="space-y-4">
           <div className="p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-sm text-slate-400">
-            CSV must have columns: <code className="text-indigo-300">name</code>, <code className="text-indigo-300">email</code>, <code className="text-indigo-300">phone</code>
+            Upload any CSV file — column names will be auto-detected and you can remap them if needed before importing.
           </div>
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFile} />
           <Button className="w-full" onClick={() => fileRef.current?.click()} loading={loading}>
