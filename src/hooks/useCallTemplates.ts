@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { CallTemplate } from '@/types';
 
@@ -14,10 +14,11 @@ export function useCallTemplates(levelId: string | null) {
     const q = query(
       collection(db, 'callTemplates'),
       where('levelId', '==', levelId),
-      orderBy('createdAt', 'asc'),
     );
     const unsub = onSnapshot(q, (snap) => {
-      setTemplates(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallTemplate)));
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() } as CallTemplate));
+      data.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      setTemplates(data);
       setLoading(false);
     }, (err) => {
       console.error('[useCallTemplates]', err.message);

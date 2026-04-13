@@ -57,6 +57,9 @@ function BatchForm({
   async function handle(e: React.FormEvent) {
     e.preventDefault();
     if (!batchNumber.trim()) return;
+    if (!batchName.trim()) { toast.error('Batch name is required'); return; }
+    if (!startDate) { toast.error('Start date is required'); return; }
+    if (!endDate) { toast.error('End date is required'); return; }
     setLoading(true);
     try {
       await onSave({ batchNumber: batchNumber.trim(), batchName: batchName.trim(), startDate, endDate, remarks: remarks.trim() });
@@ -102,11 +105,11 @@ function BatchForm({
             <p className="text-xs text-red-400 mt-1">This batch number is already taken</p>
           )}
         </div>
-        <Input label="Batch Name" placeholder="Jan 2025 Batch" value={batchName} onChange={(e) => setBatchName(e.target.value)} />
+        <Input label="Batch Name" placeholder="Jan 2025 Batch" value={batchName} onChange={(e) => setBatchName(e.target.value)} required />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Input label="Start Date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        <Input label="End Date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        <Input label="Start Date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+        <Input label="End Date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
       </div>
       <Input label="Remarks" placeholder="Optional notes…" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
       <div className="flex gap-3 pt-2">

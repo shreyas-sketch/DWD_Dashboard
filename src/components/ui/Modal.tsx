@@ -33,7 +33,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
 
   return (
     /* Scrollable overlay — handles taller-than-viewport modals */
-    <div className="fixed inset-0 z-50 overflow-y-auto">
+    <div className="fixed inset-0 z-[60] overflow-y-auto">
       {/* Backdrop — fixed so it never scrolls away */}
       <div className="fixed inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
       {/* Centering wrapper — pointer-events-none lets backdrop capture outside clicks */}
